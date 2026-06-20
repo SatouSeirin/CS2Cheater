@@ -6,10 +6,13 @@
 #include "../imgui_d11/imgui_impl_dx11.h"
 #include <thread>
 #include "../gui/gui.h"
+#include "../gui/bytes.hpp"
+#include "../gui/hashes.hpp"
 #include "../feature/esp.h"
 #include "../feature/aimbot.h"
 #include "../cs2 dumper/offsets.hpp"
 #include "../utils/CUserCMD.h"
+#include "../imgui_d11/Montserrat-Regular.h"
 
 
 static ID3D11Device* g_pd3dDevice = nullptr;
@@ -93,24 +96,37 @@ long __stdcall my_present(IDXGISwapChain* _this, UINT a, UINT b) {
 		ImGui::CreateContext();
 		ImGuiIO& io = ImGui::GetIO();
 		io.FontGlobalScale = 1.0f;
-		io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
 		io.MouseDrawCursor = false;
 
-		// 尝试加载中文字体，失败则使用默认字体
+		// ── neverlose 风格字体 ──
+		// 主字体: Museo500 (14px)
+		g_NLMainFont = io.Fonts->AddFontFromMemoryTTF(museo500_binary, sizeof museo500_binary, 14,
+			NULL, io.Fonts->GetGlyphRangesCyrillic());
+
+		// 图标字体: FontAwesome merged (13px)
+		static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+		ImFontConfig icons_config;
+		icons_config.MergeMode = true;
+		icons_config.PixelSnapH = true;
+		g_NLIconFont = io.Fonts->AddFontFromMemoryTTF(font_awesome_binary, sizeof font_awesome_binary, 13,
+			&icons_config, icon_ranges);
+
+		// 标题字体: Museo900 (28px)
+		g_NLTitleFont = io.Fonts->AddFontFromMemoryTTF(museo900_binary, sizeof museo900_binary, 28);
+
+		// ── 保留字体 (向后兼容) ──
+		InterMedium = io.Fonts->AddFontFromMemoryTTF(Intermedium, sizeof(Intermedium), 17, NULL, io.Fonts->GetGlyphRangesCyrillic());
+		LexendDecaFont = io.Fonts->AddFontFromMemoryTTF(LexendDeca, sizeof(LexendDeca), 22, NULL, io.Fonts->GetGlyphRangesCyrillic());
+
+		// 中文字体备选
 		ImFontConfig fontConfig;
 		fontConfig.MergeMode = false;
-		if (!io.Fonts->AddFontFromFileTTF("c:/windows/Fonts/simhei.ttf", 16.0f, &fontConfig, io.Fonts->GetGlyphRangesChineseFull())) {
-			// 备用字体路径
-			if (!io.Fonts->AddFontFromFileTTF("c:/windows/Fonts/msyh.ttf", 16.0f, &fontConfig, io.Fonts->GetGlyphRangesChineseFull())) {
-				// 如果都失败，使用默认字体
-				io.Fonts->AddFontDefault();
-			}
-		}
+		io.Fonts->AddFontFromFileTTF("c:/windows/Fonts/simhei.ttf", 16.0f, &fontConfig, io.Fonts->GetGlyphRangesChineseFull());
 
 		ImGui_ImplWin32_Init(g_hwnd);
 		ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dContext);
 
-		gui::Initialize();
+		gui_Initialize();
 
 		g_inited = true;
 	}

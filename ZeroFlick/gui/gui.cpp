@@ -1,797 +1,622 @@
-
 #define WIN32_LEAN_AND_MEAN
+#define IMGUI_DEFINE_MATH_OPERATORS
 
 #include <Windows.h>
-#include <WinUser.h>
+#include <d3d11.h>
 #include <fstream>
 #include <sstream>
-#include "../imgui_d11/imgui.h"
-#include "./gui.h"
-#include "../imgui_d11/imgui_internal.h"
-#include <string>
 #include <algorithm>
 #include <vector>
 #include <filesystem>
 
+#include "../imgui_d11/imgui.h"
+#include "../imgui_d11/imgui_internal.h"
+
+#include "color_t.hpp"
+#include "neverlose_gui.hpp"
+#include "hashes.hpp"
+#include "bytes.hpp"
+
+#include "./gui.h"
+
+using namespace ImGui;
 namespace fs = std::filesystem;
 
-
-inline ImVec2 operator+(const ImVec2& a, const ImVec2& b) {
-    return ImVec2(a.x + b.x, a.y + b.y);
+// ═══════════════════════════════════════════
+//  ZeroFlick 功能变量定义
+// ═══════════════════════════════════════════
+namespace zeroflick {
+	namespace visuals {
+		bool  box       = false;   float BOXcol[4]    = { 0.0f, 1.0f, 0.82f, 1.0f };
+		bool  bone      = false;   float Bonecol[4]   = { 1.0f, 1.0f, 1.0f,  1.0f };
+		bool  name      = false;   float namecol[4]   = { 1.0f, 1.0f, 1.0f,  1.0f };
+		bool  hp        = false;   float HPcol[4]     = { 0.0f, 1.0f, 0.0f,  1.0f };
+		bool  weapon    = false;   float weaponcol[4] = { 1.0f, 1.0f, 0.0f,  1.0f };
+		bool  snapline  = false;   float snaplinecol[4] = { 1.0f, 0.5f, 0.0f, 1.0f };
+		bool  distance  = false;
+		float maxDist   = 300.f;
+		bool  visible_only = false;
+		bool  team_check   = false;
+	}
+	namespace aim {
+		bool  aimbot    = true;
+		bool  autoaim   = false;
+		bool  autopunch = false;
+		bool  inspectEn = false;
+		bool  fov       = false;
+		float FOVSize        = 100.0f;
+		float autopunchsenx  = 1.0f;
+		float autopunchseny  = 1.0f;
+		float smoothFactorValue = 4.0f;
+		float inspectEnSize  = 10.0f;
+		int   aimKey     = VK_MENU;
+		int   triggerKey = VK_SHIFT;
+		int   aimPart    = 0;
+		bool  aimHead    = true;
+		bool  aimBody    = false;
+		bool  aimDick    = false;
+	}
+	namespace movement {
+		bool  bhop = false;
+	}
+	namespace misc {
+		bool  auto_strafe = false;
+		bool  no_flash    = false;
+		float flash_alpha = 0.3f;
+	}
 }
-inline ImVec2 operator-(const ImVec2& a, const ImVec2& b) {
-    return ImVec2(a.x - b.x, a.y - b.y);
-}
 
-// 窗口大小
-const int WINDOW_WIDTH = 800;
-const int WINDOW_HEIGHT = 600;
+// ═══════════════════════════════════════════
+//  全局字体
+// ═══════════════════════════════════════════
+ImFont* g_NLMainFont    = nullptr;
+ImFont* g_NLTitleFont   = nullptr;
+ImFont* g_NLIconFont    = nullptr;
+ImFont* LexendDecaFont  = nullptr;
+ImFont* InterMedium     = nullptr;
+ImFont* IconFontLogs    = nullptr;
 
-// 全局变量存储窗口位置
-static ImVec2 windowPos = ImVec2(100, 100);
-static bool isDragging = false;
-static ImVec2 dragOffset;
+int g_menu_tab = 0;
 
-
-// 新增：按键绑定相关
-static bool isBindingAimKey = false;
+static bool isBindingAimKey     = false;
 static bool isBindingTriggerKey = false;
-static const char* GetKeyName(int key) {
-    static std::string keyName; // 静态存储，避免返回临时字符串
 
-    switch (key) {
-    case VK_LBUTTON: return "Mouse Left";
-    case VK_RBUTTON: return "Mouse Right";
-    case VK_MBUTTON: return "Mouse Middle";
-    case VK_XBUTTON1: return "Mouse X1";
-    case VK_XBUTTON2: return "Mouse X2";
-    case VK_BACK: return "Backspace";
-    case VK_TAB: return "Tab";
-    case VK_RETURN: return "Enter";
-    case VK_SHIFT: return "Shift";
-    case VK_CONTROL: return "Ctrl";
-    case VK_MENU: return "Alt";
-    case VK_PAUSE: return "Pause";
-    case VK_CAPITAL: return "Caps Lock";
-    case VK_ESCAPE: return "Escape";
-    case VK_SPACE: return "Space";
-    case VK_PRIOR: return "Page Up";
-    case VK_NEXT: return "Page Down";
-    case VK_END: return "End";
-    case VK_HOME: return "Home";
-    case VK_LEFT: return "Left Arrow";
-    case VK_UP: return "Up Arrow";
-    case VK_RIGHT: return "Right Arrow";
-    case VK_DOWN: return "Down Arrow";
-    case VK_INSERT: return "Insert";
-    case VK_DELETE: return "Delete";
-    case VK_NUMPAD0: return "Numpad 0";
-        // ... 其他按键可以继续补充
-    default:
-        if (key >= 'A' && key <= 'Z') {
-            keyName = static_cast<char>(key);
-            return keyName.c_str();
-        }
-        if (key >= '0' && key <= '9') {
-            keyName = static_cast<char>(key);
-            return keyName.c_str();
-        }
-        return "Unknown";
-    }
-}
-
-// 定义菜单状态
-enum MenuTab {
-    TAB_ESP,
-    TAB_AIM,
-    TAB_MISC,
-    TAB_SETTINGS,  // 新增设置标签
-    TAB_COUNT
-};
-static MenuTab currentTab = TAB_ESP;
-
-
-
-// 辅助函数：分割字符串
-static std::vector<std::string> SplitString(const std::string& s, char delimiter) {
-    std::vector<std::string> tokens;
-    std::string token;
-    std::istringstream tokenStream(s);
-    while (std::getline(tokenStream, token, delimiter)) {
-        if (!token.empty()) {
-            tokens.push_back(token);
-        }
-    }
-    return tokens;
-}
-
-// 辅助函数：去除字符串两端的空白字符
-static std::string Trim(const std::string& str) {
-    size_t first = str.find_first_not_of(" \t\n\r");
-    if (std::string::npos == first) {
-        return "";
-    }
-    size_t last = str.find_last_not_of(" \t\n\r");
-    return str.substr(first, (last - first + 1));
-}
-
-// 全局变量存储配置列表
-static std::vector<std::string> configList;
-static int selectedConfig = -1;
-static char newConfigName[64] = "";
-// 反馈消息相关
-static char feedbackMessage[256] = "";
-static float feedbackTimer = 0.0f;
-static ImVec4 feedbackColor = ImVec4(0.0f, 1.0f, 0.0f, 1.0f); // 默认绿色
-// 显示反馈消息
-
+// ═══════════════════════════════════════════
+//  反馈系统
+// ═══════════════════════════════════════════
 Feedback g_feedback;
 
-// gui.cpp
 void ShowFeedback() {
-    if (g_feedback.timer <= 0.0f) return;
-
-    // 计算淡出透明度
-    float alpha = ImMin(g_feedback.timer / 0.5f, 1.0f); // 最后0.5秒淡出
-
-    // 设置窗口样式（与主界面一致）
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12.0f);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.1f, 0.1f, 0.1f, 0.7f * alpha));
-
-    // 居中显示（占屏幕宽度50%）
-    ImVec2 windowSize = ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f, 0);
-    ImGui::SetNextWindowPos(ImVec2(ImGui::GetIO().DisplaySize.x * 0.5f,
-        ImGui::GetIO().DisplaySize.y * 0.4f),
-        ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(windowSize);
-
-    if (ImGui::Begin("##Feedback", nullptr,
-        ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoInputs))
-    {
-        // 文字居中
-        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]); // 使用主字体
-        ImVec2 textSize = ImGui::CalcTextSize(g_feedback.message.c_str());
-        ImGui::SetCursorPosX((windowSize.x - textSize.x) * 0.5f);
-
-        // 文字样式（带透明度）
-        ImVec4 textColor = g_feedback.color;
-        textColor.w = alpha;
-        ImGui::TextColored(textColor, "%s", g_feedback.message.c_str());
-
-        ImGui::PopFont();
-    }
-    ImGui::End();
-
-    // 恢复样式
-    ImGui::PopStyleColor();
-    ImGui::PopStyleVar(2);
-
-    // 更新计时器
-    g_feedback.timer -= ImGui::GetIO().DeltaTime;
+	if (g_feedback.timer <= 0.0f) return;
+	float alpha = ImMin(g_feedback.timer / 0.5f, 1.0f);
+	PushStyleVar(ImGuiStyleVar_WindowRounding, 14.0f);
+	PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+	PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.114f, 0.118f, 0.133f, 0.92f * alpha));
+	ImVec2 ts = CalcTextSize(g_feedback.message.c_str());
+	float ww = ts.x + 40.f, wh = ts.y + 28.f;
+	SetNextWindowPos(ImVec2((GetIO().DisplaySize.x - ww) * 0.5f, GetIO().DisplaySize.y * 0.38f), ImGuiCond_Always);
+	SetNextWindowSize(ImVec2(ww, wh));
+	if (Begin("##Feedback", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+		ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoInputs)) {
+		SetCursorPos(ImVec2(20.0f, (wh - ts.y) * 0.5f));
+		g_feedback.color.w = alpha;
+		TextColored(g_feedback.color, "%s", g_feedback.message.c_str());
+	}
+	End();
+	PopStyleColor();
+	PopStyleVar(2);
+	g_feedback.timer -= GetIO().DeltaTime;
 }
 
-void SetFeedback(const std::string& message, const ImVec4& color, float duration) {
-    g_feedback.message = message;
-    g_feedback.color = color;
-    g_feedback.timer = duration;
+void SetFeedback(const std::string& msg, const ImVec4& col, float dur) {
+	g_feedback.message = msg; g_feedback.color = col; g_feedback.timer = dur;
+}
+
+// ═══════════════════════════════════════════
+//  配置 I/O
+// ═══════════════════════════════════════════
+static std::vector<std::string> configList;
+static int   selectedConfig = -1;
+static char  newConfigName[64] = "";
+
+static std::string Trim(const std::string& s) {
+	size_t f = s.find_first_not_of(" \t\n\r");
+	if (f == std::string::npos) return "";
+	return s.substr(f, s.find_last_not_of(" \t\n\r") - f + 1);
 }
 
 void SaveCurrentConfig(const std::string& filename) {
-    std::ofstream file(filename + ".ini");
-    if (file.is_open()) {
-        // 保存ESP设置
-        file << "[ESP]\n";
-        file << "box=" << zeroflick::visuals::box << "\n";
-        file << "bone=" << zeroflick::visuals::bone << "\n";
-        file << "hp=" << zeroflick::visuals::hp << "\n";
-        file << "name=" << zeroflick::visuals::name << "\n";
-        file << "weapon=" << zeroflick::visuals::weapon << "\n";
-
-        // 保存颜色设置
-        file << "box_color=" << zeroflick::visuals::BOXcol[0] << ","
-            << zeroflick::visuals::BOXcol[1] << ","
-            << zeroflick::visuals::BOXcol[2] << ","
-            << zeroflick::visuals::BOXcol[3] << "\n";
-
-        file << "bone_color=" << zeroflick::visuals::Bonecol[0] << ","
-            << zeroflick::visuals::Bonecol[1] << ","
-            << zeroflick::visuals::Bonecol[2] << ","
-            << zeroflick::visuals::Bonecol[3] << "\n";
-
-        // 保存AIM设置
-        file << "[AIM]\n";
-        file << "aimbot=" << zeroflick::aim::aimbot << "\n";
-        file << "aim_key=" << zeroflick::aim::aimKey << "\n";
-        file << "smoothFactorValue=" << zeroflick::aim::smoothFactorValue << "\n";
-        file << "autoaim=" << zeroflick::aim::autoaim << "\n";
-        file << "triggerKey=" << zeroflick::aim::triggerKey << "\n";
-
-        file.close();
-        SetFeedback(std::string("配置已保存: " + filename).c_str(), ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
-    }
-    else {
-        SetFeedback(std::string("保存失败: " + filename).c_str(), ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
-    }
+	std::ofstream f(filename + ".ini");
+	if (f.is_open()) {
+		f << "[ESP]\nbox=" << zeroflick::visuals::box
+		  << "\nbone=" << zeroflick::visuals::bone
+		  << "\nhp=" << zeroflick::visuals::hp
+		  << "\nname=" << zeroflick::visuals::name
+		  << "\nweapon=" << zeroflick::visuals::weapon
+		  << "\nsnapline=" << zeroflick::visuals::snapline
+		  << "\ndistance=" << zeroflick::visuals::distance
+		  << "\nmaxdist=" << zeroflick::visuals::maxDist
+		  << "\nvisible_only=" << zeroflick::visuals::visible_only
+		  << "\nteam_check=" << zeroflick::visuals::team_check
+		  << "\n[AIM]\naimbot=" << zeroflick::aim::aimbot
+		  << "\naim_key=" << zeroflick::aim::aimKey
+		  << "\nsmooth=" << zeroflick::aim::smoothFactorValue
+		  << "\nautoaim=" << zeroflick::aim::autoaim
+		  << "\ntrigger_key=" << zeroflick::aim::triggerKey
+		  << "\nautopunch=" << zeroflick::aim::autopunch
+		  << "\nfov=" << zeroflick::aim::fov
+		  << "\nfovsize=" << zeroflick::aim::FOVSize
+		  << "\ninspectEn=" << zeroflick::aim::inspectEn
+		  << "\ninspectEnSize=" << zeroflick::aim::inspectEnSize
+		  << "\naimHead=" << zeroflick::aim::aimHead
+		  << "\naimBody=" << zeroflick::aim::aimBody
+		  << "\n[MISC]\nbhop=" << zeroflick::movement::bhop
+		  << "\nno_flash=" << zeroflick::misc::no_flash
+		  << "\nflash_alpha=" << zeroflick::misc::flash_alpha
+		  << "\n";
+		f.close();
+		SetFeedback("Saved: " + filename, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
+	} else {
+		SetFeedback("Save failed!", ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+	}
 }
 
 void LoadConfig(const std::string& filename) {
-    std::ifstream file(filename + ".ini");
-    if (file.is_open()) {
-        std::string line;
-        std::string section;
-
-        while (std::getline(file, line)) {
-            line = Trim(line);
-            if (line.empty()) continue;
-
-            if (line[0] == '[') {
-                section = line.substr(1, line.find(']') - 1);
-            }
-            else {
-                size_t eq_pos = line.find('=');
-                if (eq_pos != std::string::npos) {
-                    std::string key = Trim(line.substr(0, eq_pos));
-                    std::string value = Trim(line.substr(eq_pos + 1));
-
-                    if (section == "ESP") {
-                        if (key == "box") zeroflick::visuals::box = (value == "1");
-                        else if (key == "bone") zeroflick::visuals::bone = (value == "1");
-                        else if (key == "hp") zeroflick::visuals::hp = (value == "1");
-                        else if (key == "name") zeroflick::visuals::name = (value == "1");
-                        else if (key == "weapon") zeroflick::visuals::weapon = (value == "1");
-
-                        // 处理颜色
-                        else if (key == "box_color") {
-                            auto colors = SplitString(value, ',');
-                            if (colors.size() == 4) {
-                                zeroflick::visuals::BOXcol[0] = std::stof(colors[0]);
-                                zeroflick::visuals::BOXcol[1] = std::stof(colors[1]);
-                                zeroflick::visuals::BOXcol[2] = std::stof(colors[2]);
-                                zeroflick::visuals::BOXcol[3] = std::stof(colors[3]);
-                            }
-                        }
-                        else if (key == "bone_color") {
-                            auto colors = SplitString(value, ',');
-                            if (colors.size() == 4) {
-                                zeroflick::visuals::Bonecol[0] = std::stof(colors[0]);
-                                zeroflick::visuals::Bonecol[1] = std::stof(colors[1]);
-                                zeroflick::visuals::Bonecol[2] = std::stof(colors[2]);
-                                zeroflick::visuals::Bonecol[3] = std::stof(colors[3]);
-                            }
-                        }
-                    }
-                    else if (section == "AIM") {
-                        if (key == "aimbot") zeroflick::aim::aimbot = (value == "1");
-                        else if (key == "aim_key") zeroflick::aim::aimKey = std::stoi(value);
-                        else if (key == "smoothFactorValue") zeroflick::aim::smoothFactorValue = std::stof(value);
-                        else if (key == "autoaim") zeroflick::aim::autoaim = (value == "1");
-                        else if (key == "triggerKey") zeroflick::aim::triggerKey = std::stoi(value);
-                    }
-                }
-            }
-        }
-        file.close();
-        SetFeedback(std::string("配置已加载: " + filename).c_str(), ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
-    }
-    else {
-        SetFeedback(std::string("加载失败: " + filename).c_str(), ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
-    }
+	std::ifstream f(filename + ".ini");
+	if (!f.is_open()) { SetFeedback("Load failed!", ImVec4(1.0f, 0.0f, 0.0f, 1.0f)); return; }
+	std::string line, section;
+	while (std::getline(f, line)) {
+		line = Trim(line);
+		if (line.empty() || line[0] == ';') continue;
+		if (line[0] == '[') { section = line.substr(1, line.find(']') - 1); continue; }
+		size_t eq = line.find('=');
+		if (eq == std::string::npos) continue;
+		std::string k = Trim(line.substr(0, eq)), v = Trim(line.substr(eq + 1));
+		auto b = [&] { return v == "1"; };
+		try {
+			int iv = std::stoi(v);
+			float fv = std::stof(v);
+			if (section == "ESP") {
+				if (k == "box") zeroflick::visuals::box = b();
+				else if (k == "bone") zeroflick::visuals::bone = b();
+				else if (k == "hp") zeroflick::visuals::hp = b();
+				else if (k == "name") zeroflick::visuals::name = b();
+				else if (k == "weapon") zeroflick::visuals::weapon = b();
+				else if (k == "snapline") zeroflick::visuals::snapline = b();
+				else if (k == "distance") zeroflick::visuals::distance = b();
+				else if (k == "maxdist") zeroflick::visuals::maxDist = fv;
+				else if (k == "visible_only") zeroflick::visuals::visible_only = b();
+				else if (k == "team_check") zeroflick::visuals::team_check = b();
+			} else if (section == "AIM") {
+				if (k == "aimbot") zeroflick::aim::aimbot = b();
+				else if (k == "aim_key") zeroflick::aim::aimKey = iv;
+				else if (k == "smooth") zeroflick::aim::smoothFactorValue = fv;
+				else if (k == "autoaim") zeroflick::aim::autoaim = b();
+				else if (k == "trigger_key") zeroflick::aim::triggerKey = iv;
+				else if (k == "autopunch") zeroflick::aim::autopunch = b();
+				else if (k == "fov") zeroflick::aim::fov = b();
+				else if (k == "fovsize") zeroflick::aim::FOVSize = fv;
+				else if (k == "inspectEn") zeroflick::aim::inspectEn = b();
+				else if (k == "inspectEnSize") zeroflick::aim::inspectEnSize = fv;
+				else if (k == "aimHead") zeroflick::aim::aimHead = b();
+				else if (k == "aimBody") zeroflick::aim::aimBody = b();
+			} else if (section == "MISC") {
+				if (k == "bhop") zeroflick::movement::bhop = b();
+				else if (k == "no_flash") zeroflick::misc::no_flash = b();
+				else if (k == "flash_alpha") zeroflick::misc::flash_alpha = fv;
+			}
+		} catch (...) {}
+	}
+	f.close();
+	SetFeedback("Loaded: " + filename, ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
 }
-
 
 void RefreshConfigList() {
-    configList.clear();
-
-    // 获取当前目录下所有.ini文件
-    for (const auto& entry : fs::directory_iterator(".")) {
-        if (entry.path().extension() == ".ini") {
-            configList.push_back(entry.path().stem().string());
-        }
-    }
-
-    // 按字母排序
-    std::sort(configList.begin(), configList.end());
+	configList.clear();
+	for (const auto& e : fs::directory_iterator("."))
+		if (e.path().extension() == ".ini")
+			configList.push_back(e.path().stem().string());
+	std::sort(configList.begin(), configList.end());
 }
 
-void gui::Initialize() {
-    // 获取ImGui样式引用
-    ImGuiStyle& style = ImGui::GetStyle();
-    // 全局样式设置
-    style.WindowRounding = 12.0f;         // 窗口圆角
-    style.FrameRounding = 4.0f;          // 控件圆角
-    style.GrabRounding = 4.0f;           // 滑块圆角
-    style.ScrollbarRounding = 9.0f;      // 滚动条圆角
-    style.WindowBorderSize = 0.0f;       // 无窗口边框
-    style.FrameBorderSize = 0.0f;        // 无控件边框
+// ═══════════════════════════════════════════
+//  gui_Initialize — neverlose 暗黑主题
+// ═══════════════════════════════════════════
+void gui_Initialize() {
+	RefreshConfigList();
 
-    // 颜色设置
-    style.Colors[ImGuiCol_CheckMark] = ImVec4(0.26f, 0.59f, 0.98f, 1.00f); // 对勾颜色
-    style.Colors[ImGuiCol_FrameBg] = ImVec4(0.16f, 0.16f, 0.16f, 1.00f);   // 控件背景
-    style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.20f, 0.20f, 0.20f, 1.00f);
-    style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+	ImGuiStyle& s = GetStyle();
+	s.WindowPadding   = ImVec2(0, 0);
+	s.FrameRounding   = 6;
+	s.ChildRounding   = 10;
+	s.PopupRounding   = 5;
+	s.GrabRounding    = 4;
+	s.ScrollbarRounding = 4;
 
-    // 按钮样式
-    style.Colors[ImGuiCol_Button] = ImVec4(0.2f, 0.2f, 0.2f, 1.0f);
-    style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.3f, 0.3f, 0.3f, 1.0f);
-    style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.15f, 0.15f, 0.15f, 1.0f);
-
-    // 注意：字体已在 DllMain.cpp 的 my_present 中加载，这里不再重复加载
-
-    // 初始化时刷新配置列表
-    RefreshConfigList();
-}
-// 美化后的Checkbox
-bool CustomCheckbox(const char* label, bool* v) {
-    ImGuiWindow* window = ImGui::GetCurrentWindow();
-    if (window->SkipItems)
-        return false;
-
-    ImGuiContext& g = *ImGui::GetCurrentContext();
-    const ImGuiStyle& style = g.Style;
-    const ImGuiID id = window->GetID(label);
-    const ImVec2 label_size = ImGui::CalcTextSize(label, NULL, true);
-
-    const float square_sz = ImGui::GetFrameHeight();
-    const ImVec2 pos = window->DC.CursorPos;
-    const ImRect total_bb(pos, pos + ImVec2(square_sz + (label_size.x > 0.0f ? style.ItemInnerSpacing.x + label_size.x : 0.0f), label_size.y + style.FramePadding.y * 2.0f));
-
-    ImGui::ItemSize(total_bb, style.FramePadding.y);
-    if (!ImGui::ItemAdd(total_bb, id))
-        return false;
-
-    bool hovered, held;
-    bool pressed = ImGui::ButtonBehavior(total_bb, id, &hovered, &held);
-    if (pressed)
-        *v = !(*v);
-
-    // 渲染
-    const ImU32 col_bg = hovered ? ImGui::GetColorU32(held ? ImGuiCol_FrameBgActive : ImGuiCol_FrameBgHovered) : ImGui::GetColorU32(ImGuiCol_FrameBg);
-    window->DrawList->AddRectFilled(total_bb.Min, total_bb.Min + ImVec2(square_sz, square_sz), col_bg, style.FrameRounding);
-
-    if (*v) {
-        const float pad = ImMax(1.0f, (float)(int)(square_sz / 6.0f));
-        ImGui::RenderCheckMark(window->DrawList, total_bb.Min + ImVec2(pad, pad), ImGui::GetColorU32(ImGuiCol_CheckMark), square_sz - pad * 2.0f);
-    }
-
-    if (label_size.x > 0.0f) {
-        ImGui::RenderText(ImVec2(total_bb.Min.x + square_sz + style.ItemInnerSpacing.x, total_bb.Min.y + style.FramePadding.y), label);
-    }
-
-    return pressed;
+	s.Colors[ImGuiCol_WindowBg]           = ImVec4(0.043f, 0.047f, 0.058f, 1.0f);
+	s.Colors[ImGuiCol_ChildBg]            = ImVec4(0.019f, 0.023f, 0.035f, 1.0f);
+	s.Colors[ImGuiCol_PopupBg]            = ImVec4(0.019f, 0.023f, 0.035f, 1.0f);
+	s.Colors[ImGuiCol_Text]               = ImVec4(1.00f, 1.00f, 1.00f, 1.0f);
+	s.Colors[ImGuiCol_TextDisabled]       = ImVec4(0.51f, 0.52f, 0.56f, 1.0f);
+	s.Colors[ImGuiCol_Border]             = ImVec4(1.00f, 1.00f, 1.00f, 0.03f);
+	s.Colors[ImGuiCol_FrameBg]            = ImVec4(0.023f, 0.039f, 0.07f, 1.0f);
+	s.Colors[ImGuiCol_FrameBgHovered]     = ImVec4(0.043f, 0.07f, 0.137f, 1.0f);
+	s.Colors[ImGuiCol_FrameBgActive]      = ImVec4(0.043f, 0.07f, 0.137f, 1.0f);
+	s.Colors[ImGuiCol_TitleBg]            = ImVec4(0.019f, 0.023f, 0.035f, 1.0f);
+	s.Colors[ImGuiCol_TitleBgActive]      = ImVec4(0.019f, 0.023f, 0.035f, 1.0f);
+	s.Colors[ImGuiCol_Button]             = ImVec4(0.031f, 0.035f, 0.058f, 1.0f);
+	s.Colors[ImGuiCol_ButtonHovered]      = ImVec4(0.050f, 0.054f, 0.078f, 1.0f);
+	s.Colors[ImGuiCol_ButtonActive]       = ImVec4(0.07f, 0.074f, 0.098f, 1.0f);
+	s.Colors[ImGuiCol_Header]             = ImVec4(0.023f, 0.039f, 0.07f, 1.0f);
+	s.Colors[ImGuiCol_HeaderHovered]      = ImVec4(0.043f, 0.07f, 0.137f, 1.0f);
+	s.Colors[ImGuiCol_HeaderActive]       = ImVec4(0.043f, 0.07f, 0.137f, 1.0f);
+	s.Colors[ImGuiCol_CheckMark]          = ImVec4(0.30f, 0.49f, 1.00f, 1.0f);
+	s.Colors[ImGuiCol_SliderGrab]         = ImVec4(0.30f, 0.49f, 1.00f, 1.0f);
+	s.Colors[ImGuiCol_SliderGrabActive]   = ImVec4(0.30f, 0.49f, 1.00f, 1.0f);
+	s.Colors[ImGuiCol_ScrollbarBg]        = ImVec4(0.019f, 0.023f, 0.035f, 1.0f);
+	s.Colors[ImGuiCol_ScrollbarGrab]      = ImVec4(0.031f, 0.035f, 0.058f, 1.0f);
+	s.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.050f, 0.054f, 0.078f, 1.0f);
+	s.Colors[ImGuiCol_ScrollbarGrabActive]  = ImVec4(0.07f, 0.074f, 0.098f, 1.0f);
+	s.Colors[ImGuiCol_Separator]          = ImVec4(1.00f, 1.00f, 1.00f, 0.02f);
 }
 
-// 美化后的ColorEdit4
-bool CustomColorEdit4(const char* label, float col[4], ImGuiColorEditFlags flags = 0) {
-    ImGuiWindow* window = ImGui::GetCurrentWindow();
-    if (window->SkipItems)
-        return false;
+// ═══════════════════════════════════════════
+//  辅助: 推入 neverlose 字体
+// ═══════════════════════════════════════════
+static void PushNLFont() { if (g_NLMainFont) PushFont(g_NLMainFont); }
+static void PopNLFont()  { PopFont(); }
 
-    ImGuiContext& g = *ImGui::GetCurrentContext();
-    const ImGuiStyle& style = g.Style;
-    const ImGuiID id = window->GetID(label);
+// ═══════════════════════════════════════════
+//  Tab 内容渲染
+// ═══════════════════════════════════════════
 
-    const float square_sz = ImGui::GetFrameHeight();
-    const float w_full = ImGui::CalcItemWidth();
-    const float w_button = (flags & ImGuiColorEditFlags_NoSmallPreview) ? 0.0f : (square_sz + style.ItemInnerSpacing.x);
-    const float w_inputs = w_full - w_button;
+// ── ESP Tab (tab=0) ──
+static void render_esp_tab() {
+	PushNLFont();
 
-    const char* label_display_end = ImGui::FindRenderedTextEnd(label);
+	gui.group_box(ICON_FA_EYE " ESP", ImVec2(316, 290)); {
+		gui.checkbox("Box",     &zeroflick::visuals::box);
+		if (zeroflick::visuals::box)    { SameLine(260); gui.color_edit("##boxcol",    zeroflick::visuals::BOXcol); }
 
-    const ImVec2 pos = window->DC.CursorPos;
-    const ImRect total_bb(pos, pos + ImVec2(w_full, square_sz));
+		gui.checkbox("Bone",    &zeroflick::visuals::bone);
+		if (zeroflick::visuals::bone)   { SameLine(260); gui.color_edit("##bonecol",   zeroflick::visuals::Bonecol); }
 
-    ImGui::ItemSize(total_bb, style.FramePadding.y);
-    if (!ImGui::ItemAdd(total_bb, id))
-        return false;
+		gui.checkbox("HP Bar",  &zeroflick::visuals::hp);
+		if (zeroflick::visuals::hp)     { SameLine(260); gui.color_edit("##hpcol",     zeroflick::visuals::HPcol); }
 
-    bool value_changed = false;
+		gui.checkbox("Name",    &zeroflick::visuals::name);
+		if (zeroflick::visuals::name)   { SameLine(260); gui.color_edit("##namecol",   zeroflick::visuals::namecol); }
 
-    // 渲染颜色预览
-    if (!(flags & ImGuiColorEditFlags_NoSmallPreview)) {
-        ImU32 col_u32 = ImGui::ColorConvertFloat4ToU32(ImVec4(col[0], col[1], col[2], col[3]));
-        window->DrawList->AddRectFilled(total_bb.Min, total_bb.Min + ImVec2(square_sz, square_sz), col_u32, style.FrameRounding);
-    }
+		gui.checkbox("Weapon",  &zeroflick::visuals::weapon);
+		if (zeroflick::visuals::weapon) { SameLine(260); gui.color_edit("##weaponcol", zeroflick::visuals::weaponcol); }
 
-    // 渲染文本标签
-    if (label != label_display_end) {
-        ImGui::RenderText(ImVec2(total_bb.Min.x + square_sz + style.ItemInnerSpacing.x, total_bb.Min.y + style.FramePadding.y), label);
-    }
+		gui.checkbox("Snapline", &zeroflick::visuals::snapline);
+		if (zeroflick::visuals::snapline) { SameLine(260); gui.color_edit("##snaplinecol", zeroflick::visuals::snaplinecol); }
 
-    // 处理交互
-    bool hovered, held;
-    bool pressed = ImGui::ButtonBehavior(total_bb, id, &hovered, &held);
-    if (pressed) {
-        ImGui::OpenPopup("color_picker");
-        ImGui::SetNextWindowPos(ImGui::GetItemRectMax() + ImVec2(0, style.ItemSpacing.y));
-    }
+		gui.checkbox("Distance", &zeroflick::visuals::distance);
+	} gui.end_group_box();
 
-    // 颜色选择器弹出窗口
-    if (ImGui::BeginPopup("color_picker")) {
-        if (flags & ImGuiColorEditFlags_PickerHueWheel) {
-            value_changed = ImGui::ColorPicker4("##picker", col, flags | ImGuiColorEditFlags_NoSidePreview | ImGuiColorEditFlags_NoSmallPreview);
-        }
-        else {
-            value_changed = ImGui::ColorPicker4("##picker", col, flags);
-        }
-        ImGui::EndPopup();
-    }
+	SameLine();
 
-    return value_changed;
+	gui.group_box(ICON_FA_FILTER " Filters", ImVec2(316 - GetStyle().ItemSpacing.x, 290)); {
+		gui.checkbox("Visible only", &zeroflick::visuals::visible_only);
+		gui.checkbox("Team check",   &zeroflick::visuals::team_check);
+		Spacing();
+		gui.slider_float("Max distance", &zeroflick::visuals::maxDist, 10.f, 500.f, "%.0f m");
+
+		Spacing(); Spacing();
+		gui.label_colored(gui.accent_color, ICON_FA_EYE " ESP renders through walls");
+		gui.label_disabled("All features update in real-time");
+	} gui.end_group_box();
+
+	PopNLFont();
 }
 
+// ── Aimbot Tab (tab=1) — 带 subtab ──
+static void render_aim_general() {
+	gui.checkbox("Enable", &zeroflick::aim::aimbot);
+	Spacing();
 
+	gui.keybind("Aim Key", &zeroflick::aim::aimKey, &isBindingAimKey);
+	Spacing();
 
+	gui.slider_float("Smooth", &zeroflick::aim::smoothFactorValue, 0.1f, 10.f, "%.1f");
 
+	Spacing();
+	gui.label("Hitbox");
+	SameLine(GetCursorPosX() + 80);
+	gui.checkbox("Head", &zeroflick::aim::aimHead);
+	SameLine(GetCursorPosX() + 170);
+	gui.checkbox("Body", &zeroflick::aim::aimBody);
+}
+
+static void render_aim_rcs() {
+	gui.checkbox("RCS Enable", &zeroflick::aim::autopunch);
+	if (zeroflick::aim::autopunch) {
+		Spacing();
+		gui.slider_float("RCS Y", &zeroflick::aim::autopunchsenx, 0.1f, 5.f, "%.3f");
+		gui.slider_float("RCS X", &zeroflick::aim::autopunchseny, 0.1f, 5.f, "%.3f");
+	}
+}
+
+static void render_aim_misc() {
+	gui.checkbox("Auto Fire", &zeroflick::aim::autoaim);
+	Spacing();
+
+	gui.keybind("Fire Key", &zeroflick::aim::triggerKey, &isBindingTriggerKey);
+	Spacing();
+
+	gui.checkbox("FOV Circle", &zeroflick::aim::fov);
+	if (zeroflick::aim::fov)
+		gui.slider_float("FOV Size", &zeroflick::aim::FOVSize, 0.01f, 360.f, "%.0f");
+
+	Spacing();
+	gui.checkbox("Inspect Enemy", &zeroflick::aim::inspectEn);
+	if (zeroflick::aim::inspectEn)
+		gui.slider_float("Inspect Size", &zeroflick::aim::inspectEnSize, 1.f, 50.f, "%.0f");
+}
+
+static void render_aim_tab() {
+	PushNLFont();
+	gui.group_box(ICON_FA_CROSSHAIRS " Aimbot", ImVec2(GetWindowWidth(), GetWindowHeight())); {
+
+		switch (gui.m_rage_subtab) {
+		case 0: render_aim_general(); break;
+		case 1: render_aim_rcs();     break;
+		case 2: render_aim_misc();    break;
+		}
+
+	} gui.end_group_box();
+	PopNLFont();
+}
+
+// ── Trigger Tab (tab=2) ──
+static void render_trigger_tab() {
+	PushNLFont();
+
+	gui.group_box(ICON_FA_MOUSE_POINTER " TriggerBot", ImVec2(316, 220)); {
+		gui.checkbox("Auto Fire", &zeroflick::aim::autoaim);
+		Spacing();
+		gui.keybind("Fire Key", &zeroflick::aim::triggerKey, &isBindingTriggerKey);
+		Spacing(); Spacing();
+		gui.label_disabled("Hold aim key + fire key to activate");
+	} gui.end_group_box();
+
+	SameLine();
+
+	gui.group_box(ICON_FA_RUNNING " Movement", ImVec2(316 - GetStyle().ItemSpacing.x, 220)); {
+		gui.checkbox("Bunny Hop", &zeroflick::movement::bhop);
+		Spacing();
+		gui.checkbox("Auto Strafe", &zeroflick::misc::auto_strafe);
+	} gui.end_group_box();
+
+	PopNLFont();
+}
+
+// ── Visuals Tab (tab=3) ──
+static void render_visuals_tab() {
+	PushNLFont();
+
+	gui.group_box(ICON_FA_PALETTE " Visuals", ImVec2(316, 200)); {
+		gui.checkbox("Inspect Enemy", &zeroflick::aim::inspectEn);
+		if (zeroflick::aim::inspectEn)
+			gui.slider_float("Inspect Size", &zeroflick::aim::inspectEnSize, 1.f, 50.f, "%.0f");
+	} gui.end_group_box();
+
+	SameLine();
+
+	gui.group_box(ICON_FA_EYE_SLASH " Anti-Flash", ImVec2(316 - GetStyle().ItemSpacing.x, 200)); {
+		gui.checkbox("No Flash", &zeroflick::misc::no_flash);
+		if (zeroflick::misc::no_flash)
+			gui.slider_float("Flash Alpha", &zeroflick::misc::flash_alpha, 0.f, 1.f, "%.1f");
+	} gui.end_group_box();
+
+	PopNLFont();
+}
+
+// ── Config Tab (tab=4) ──
+static void render_config_tab() {
+	PushNLFont();
+
+	gui.group_box(ICON_FA_SAVE " Config Manager", ImVec2(316, GetWindowHeight())); {
+		if (gui.button("Refresh", ImVec2(100, 25))) {
+			RefreshConfigList(); selectedConfig = -1;
+			SetFeedback("Configs refreshed", ImVec4(0.3f, 0.49f, 1.f, 1.f));
+		}
+		SameLine();
+		if (gui.button("Save", ImVec2(100, 25)) && selectedConfig >= 0 && selectedConfig < (int)configList.size())
+			SaveCurrentConfig(configList[selectedConfig]);
+
+		Spacing(); Spacing();
+		gui.label("Configs:");
+		Spacing();
+
+		PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 2));
+		PushID("cfg_scroll"); BeginChild("", ImVec2(GetContentRegionAvail().x, ImMin((int)configList.size() * 22.f, 120.f)), false, ImGuiWindowFlags_AlwaysUseWindowPadding);
+		for (int i = 0; i < (int)configList.size(); i++)
+			if (gui.selectable_item(configList[i].c_str(), selectedConfig == i))
+				selectedConfig = i;
+		EndChild(); PopID();
+		PopStyleVar();
+
+		if (selectedConfig >= 0 && selectedConfig < (int)configList.size()) {
+			Spacing();
+			if (gui.button("Load", ImVec2(90, 25)))
+				LoadConfig(configList[selectedConfig]);
+			SameLine();
+			if (gui.button("Delete", ImVec2(90, 25))) {
+				std::string fp = configList[selectedConfig] + ".ini";
+				if (fs::exists(fp)) { fs::remove(fp); RefreshConfigList(); selectedConfig = -1; }
+				SetFeedback("Deleted", ImVec4(1.f, 0.4f, 0.4f, 1.f));
+			}
+		}
+	} gui.end_group_box();
+
+	SameLine();
+
+	gui.group_box(ICON_FA_PLUS " New Config", ImVec2(316 - GetStyle().ItemSpacing.x, GetWindowHeight())); {
+		gui.label("Create a new config:");
+		Spacing();
+		gui.input_text("##newcfg", newConfigName, IM_ARRAYSIZE(newConfigName), "Config name...");
+		Spacing();
+		if (gui.button("Create", ImVec2(100, 25)) && strlen(newConfigName) > 0) {
+			std::string nc = newConfigName;
+			if (!nc.empty()) {
+				SaveCurrentConfig(nc); RefreshConfigList();
+				memset(newConfigName, 0, sizeof(newConfigName));
+				auto it = std::find(configList.begin(), configList.end(), nc);
+				if (it != configList.end()) selectedConfig = (int)std::distance(configList.begin(), it);
+			}
+		}
+
+		Spacing(); Spacing(); Spacing();
+		gui.label_disabled("Configs stored as .ini files");
+		gui.label_colored(gui.accent_color, "ZEROBYTE " ICON_FA_HEART);
+	} gui.end_group_box();
+
+	PopNLFont();
+}
+
+// ═══════════════════════════════════════════
+//  draw_Menu — neverlose 风格主菜单
+// ═══════════════════════════════════════════
 void draw_Menu() {
 
-    // 在消息循环或主循环中添加按键绑定处理
-    if (isBindingAimKey || isBindingTriggerKey) {
-        // 优先检测鼠标按键
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-            if (isBindingAimKey) zeroflick::aim::aimKey = VK_LBUTTON;
-            if (isBindingTriggerKey) zeroflick::aim::triggerKey = VK_LBUTTON;
-            isBindingAimKey = isBindingTriggerKey = false;
-        }
-        else if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
-            if (isBindingAimKey) zeroflick::aim::aimKey = VK_RBUTTON;
-            if (isBindingTriggerKey) zeroflick::aim::triggerKey = VK_RBUTTON;
-            isBindingAimKey = isBindingTriggerKey = false;
-        }
-        // 检测键盘按键
-        else {
-            for (int i = 0; i < 256; i++) {
-                if (i == VK_LBUTTON || i == VK_RBUTTON) continue;
-                if (GetAsyncKeyState(i) & 0x8000) {
-                    if (isBindingAimKey) zeroflick::aim::aimKey = i;
-                    if (isBindingTriggerKey) zeroflick::aim::triggerKey = i;
-                    isBindingAimKey = isBindingTriggerKey = false;
-                    break;
-                }
-            }
-        }
-    }
-    // 设置窗口位置和大小
-    ImGui::SetNextWindowPos(windowPos, ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(WINDOW_WIDTH, WINDOW_HEIGHT), ImGuiCond_Always);
+	// ── 按键绑定捕获 ──
+	if (isBindingAimKey || isBindingTriggerKey) {
+		for (int i = 1; i < 256; i++) {
+			if (GetAsyncKeyState(i) & 0x8000) {
+				if (isBindingAimKey)     zeroflick::aim::aimKey = i;
+				if (isBindingTriggerKey) zeroflick::aim::triggerKey = i;
+				isBindingAimKey = isBindingTriggerKey = false;
+				break;
+			}
+		}
+	}
 
-    // 窗口样式设置 - 添加圆角
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12.0f); // 圆角大小
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+	gui.m_anim = ImLerp(gui.m_anim, 1.f, 0.045f);
 
-    ImGui::Begin("MONSAL", nullptr, ImGuiWindowFlags_NoTitleBar |
-        ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoCollapse);
-    {
+	PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
 
-        // 拖动检测 - 在任何位置都可以拖动
-        if (ImGui::IsWindowHovered() && ImGui::IsMouseDragging(0)) {
-            windowPos.x += ImGui::GetIO().MouseDelta.x;
-            windowPos.y += ImGui::GetIO().MouseDelta.y;
-            ImGui::SetWindowPos(windowPos);
-        }
+	ImGui::Begin("ZEROBYTE", NULL, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground); {
 
-        // 开始3:7布局
-        ImGui::Columns(2, "MainColumns", false);
-        ImGui::SetColumnWidth(0, WINDOW_WIDTH * 0.3f); // 30%宽度给左侧
+		auto window = GetCurrentWindow();
+		auto draw   = window->DrawList;
+		auto pos    = window->Pos;
+		auto size   = window->Size;
 
-        // 左侧面板 - 整体背景
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.12f, 0.12f, 0.12f, 1.0f));
-        ImGui::BeginChild("LeftPanel", ImVec2(0, 0), true);
-        {
-            // Logo区域 - 顶部20%高度
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.08f, 0.08f, 0.08f, 1.0f));
-            ImGui::BeginChild("LogoArea", ImVec2(0, WINDOW_HEIGHT * 0.2f), true);
-            {
-                // 这里放置Logo - 示例使用文字代替
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 20);
-                ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[0]); // 使用大号字体
-                ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("MONSAL").x) * 0.5f);
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "MONSAL");
-                ImGui::PopFont();
+		SetWindowSize(ImVec2(690, 500));
 
-                // 副标题
-                ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize("CS2 Cheat").x) * 0.5f);
-                ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "CS2 Cheat");
-            }
-            ImGui::EndChild();
-            ImGui::PopStyleColor();
+		// ── 背景 ──
+		draw->AddRectFilled(pos, pos + ImVec2(690, 500), ImColor(11, 12, 15), 0);
 
-            // 按钮区域 - 剩余80%高度
-            ImGui::BeginChild("ButtonArea", ImVec2(0, 0), true);
-            {
-                // 按钮样式美化
-                ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.0f); // 更大的圆角
-                ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 12)); // 内边距
+		// ── 标题 "ZEROBYTE" ──
+		PushFont(g_NLTitleFont);
+		auto title     = "ZEROBYTE";
+		auto title_sz  = CalcTextSize(title);
+		auto title_pos = ImVec2(170 / 2 - title_sz.x / 2 + 1, 20);
 
-                // 计算居中位置
-                float buttonWidth = ImGui::GetContentRegionAvail().x * 0.8f;
-                float buttonHeight = 45.0f;
-                float buttonSpacing = 15.0f;
+		draw->AddText(pos + title_pos, gui.accent_color.to_im_color(), title);
+		draw->AddText(pos + title_pos - ImVec2(1, 0), GetColorU32(ImGuiCol_Text), title);
+		PopFont();
 
-                // 按钮颜色设置
-                auto SetButtonColors = [](const ImVec4& baseColor) {
-                    ImGui::PushStyleColor(ImGuiCol_Button, baseColor);
-                    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(
-                        baseColor.x * 1.2f,
-                        baseColor.y * 1.2f,
-                        baseColor.z * 1.2f,
-                        baseColor.w
-                    ));
-                    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(
-                        baseColor.x * 0.8f,
-                        baseColor.y * 0.8f,
-                        baseColor.z * 0.8f,
-                        baseColor.w
-                    ));
-                    };
-            
+		// ── 底部用户信息 ──
+		draw->AddLine(pos + ImVec2(0, size.y - 50), pos + ImVec2(170, size.y - 50),
+			GetColorU32(ImGuiCol_WindowBg, 0.5f));
 
-                // 添加顶部间距
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 20);
+		PushFont(g_NLMainFont);
+		draw->AddText(pos + ImVec2(20, size.y - 42), gui.text.to_im_color(), "zerobyte");
+		draw->AddText(pos + ImVec2(20, size.y - 25), gui.text_disabled.to_im_color(), "Till:");
 
-                // ESP按钮
-                ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - buttonWidth) * 0.5f);
-                SetButtonColors(currentTab == TAB_ESP ? ImVec4(0.26f, 0.59f, 0.98f, 0.8f) : ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
-                if (ImGui::Button("透视", ImVec2(buttonWidth, buttonHeight))) currentTab = TAB_ESP;
-                ImGui::PopStyleColor(3);
+		auto till_sz = CalcTextSize("Till: ");
+		draw->AddText(pos + ImVec2(20 + till_sz.x, size.y - 25),
+			gui.accent_color.to_im_color(), "Lifetime");
+		PopFont();
 
-                // 按钮间距
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + buttonSpacing);
+		// ── 左侧边栏 tabs ──
+		SetCursorPos(ImVec2(10, 70));
+		PushID("tabs"); BeginChild("", ImVec2(150, size.y - 120));
 
-                // AIM按钮
-                ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - buttonWidth) * 0.5f);
-                SetButtonColors(currentTab == TAB_AIM ? ImVec4(0.26f, 0.59f, 0.98f, 0.8f) : ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
-                if (ImGui::Button("自瞄", ImVec2(buttonWidth, buttonHeight))) currentTab = TAB_AIM;
-                ImGui::PopStyleColor(3);
+		gui.group_title("Aimbot");
+		if (gui.tab(ICON_FA_CROSSHAIRS, "ESP",     gui.m_tab == 0) && gui.m_tab != 0)
+			gui.m_tab = 0, gui.m_anim = 0.f;
+		if (gui.tab(ICON_FA_GHOST,     "Aimbot",   gui.m_tab == 1) && gui.m_tab != 1)
+			gui.m_tab = 1, gui.m_anim = 0.f;
+		if (gui.tab(ICON_FA_MOUSE,     "Trigger",  gui.m_tab == 2) && gui.m_tab != 2)
+			gui.m_tab = 2, gui.m_anim = 0.f;
 
-                // 按钮间距
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + buttonSpacing);
+		Spacing(); Spacing(); Spacing();
 
-                // MOVEMENT按钮
-                ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - buttonWidth) * 0.5f);
-                SetButtonColors(currentTab == TAB_MISC ? ImVec4(0.26f, 0.59f, 0.98f, 0.8f) : ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
-                if (ImGui::Button("运动", ImVec2(buttonWidth, buttonHeight))) currentTab = TAB_MISC;
-                ImGui::PopStyleColor(3);
+		gui.group_title("Visuals");
+		if (gui.tab(ICON_FA_PALETTE, "Visuals", gui.m_tab == 3) && gui.m_tab != 3)
+			gui.m_tab = 3, gui.m_anim = 0.f;
 
-                // 在左侧按钮区域添加设置按钮（在draw_Menu函数中）
-                // 在MOVEMENT按钮后添加：
-                ImGui::SetCursorPosY(ImGui::GetCursorPosY() + buttonSpacing);
-                ImGui::SetCursorPosX((ImGui::GetContentRegionAvail().x - buttonWidth) * 0.5f);
-                SetButtonColors(currentTab == TAB_SETTINGS ? ImVec4(0.26f, 0.59f, 0.98f, 0.8f) : ImVec4(0.2f, 0.2f, 0.2f, 0.8f));
-                if (ImGui::Button("设置", ImVec2(buttonWidth, buttonHeight))) currentTab = TAB_SETTINGS;
-                ImGui::PopStyleColor(3);
+		Spacing(); Spacing(); Spacing();
 
+		gui.group_title("Settings");
+		if (gui.tab(ICON_FA_COG, "Config", gui.m_tab == 4) && gui.m_tab != 4)
+			gui.m_tab = 4, gui.m_anim = 0.f;
 
-                ImGui::PopStyleVar(2); // 结束按钮样式
-            }
-            ImGui::EndChild();
-        }
-        ImGui::EndChild();
-        ImGui::PopStyleColor(); // 结束左侧背景色
+		EndChild(); PopID();
 
-        ImGui::NextColumn();
+		// ── 右上 Save ──
+		SetCursorPos(ImVec2(190, 20));
+		{
+			if (gui.button(ICON_FA_SAVE " Save", ImVec2(100, 25))) {
+				SaveCurrentConfig("autosave");
+				RefreshConfigList();
+			}
+		}
 
-        // 右侧内容区域 - 添加圆角
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.1f, 0.1f, 0.1f, 1.0f));
+		// ── Sub-tabs (仅 Aimbot tab=1 显示) ──
+		if (gui.m_tab == 1) {
+			PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0, 0));
+			SetCursorPos(ImVec2(300, 20));
+			PushID("subtabs"); BeginChild("", ImVec2(240, 25));
 
-        switch (currentTab) {
-        case TAB_ESP:
-            ImGui::BeginChild("ESP", ImVec2(0, 0), true);
-            {
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "人物设置");
+			GetWindowDrawList()->AddRectFilled(GetWindowPos(), GetWindowPos() + GetWindowSize(),
+				gui.button_bg.to_im_color(), 4);
+			GetWindowDrawList()->AddRect(GetWindowPos(), GetWindowPos() + GetWindowSize(),
+				gui.border.to_im_color(), 4);
 
-                // 使用表格布局使选项和颜色选择器对齐
-                if (ImGui::BeginTable("ESP_Options", 2, ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingFixedFit)) {
-                    ImGui::TableSetupColumn("选项", ImGuiTableColumnFlags_WidthFixed, 150);
-                    ImGui::TableSetupColumn("颜色", ImGuiTableColumnFlags_WidthFixed, 100);
+			for (int i = 0; i < (int)gui.rage_subtabs.size(); ++i) {
+				if (gui.subtab(gui.rage_subtabs.at(i), gui.m_rage_subtab == i, (int)gui.rage_subtabs.size(),
+					i == 0 ? ImDrawCornerFlags_Left :
+					i == (int)gui.rage_subtabs.size() - 1 ? ImDrawCornerFlags_Right : 0)
+					&& gui.m_rage_subtab != i)
+					gui.m_rage_subtab = i, gui.m_anim = 0.f;
 
-                    // 方框设置
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    CustomCheckbox("显示方框", &zeroflick::visuals::box);
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::PushID(1);
-                    CustomColorEdit4("##BoxColor", zeroflick::visuals::BOXcol);
-                    ImGui::PopID();
+				if (i != (int)gui.rage_subtabs.size() - 1)
+					SameLine();
+			}
 
-                    // 骨骼设置
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    CustomCheckbox("显示骨骼", &zeroflick::visuals::bone);
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::PushID(2);
-                    CustomColorEdit4("##BoneColor", zeroflick::visuals::Bonecol);
-                    ImGui::PopID();
+			EndChild(); PopID();
+			PopStyleVar();
+		}
 
-                    // 血量设置
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    CustomCheckbox("显示血量", &zeroflick::visuals::hp);
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::PushID(3);
-                    CustomColorEdit4("##HPColor", zeroflick::visuals::HPcol);
-                    ImGui::PopID();
+		// ── 内容区 ──
+		PushStyleVar(ImGuiStyleVar_Alpha, gui.m_anim);
+		PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 8));
 
-                    // 名称设置
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    CustomCheckbox("显示名称", &zeroflick::visuals::name);
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::PushID(4);
-                    CustomColorEdit4("##NameColor", zeroflick::visuals::namecol);
-                    ImGui::PopID();
+		float content_y = 81 - (5 * gui.m_anim);
+		if (gui.m_tab != 1) content_y = 55;
 
-                    // 武器设置
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    CustomCheckbox("显示武器", &zeroflick::visuals::weapon);
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::PushID(5);
-                    CustomColorEdit4("##WeaponColor", zeroflick::visuals::weaponcol);
-                    ImGui::PopID();
+		SetCursorPos(ImVec2(185, content_y));
+		PushID("childs"); BeginChild("", ImVec2(size.x - 200, size.y - 70));
 
-                    ImGui::EndTable();
-                }
-            }
-            ImGui::EndChild();
-            break;
+		switch (gui.m_tab) {
+		case 0: render_esp_tab();     break;
+		case 1: render_aim_tab();     break;
+		case 2: render_trigger_tab(); break;
+		case 3: render_visuals_tab(); break;
+		case 4: render_config_tab();  break;
+		}
 
-            // 在AIM标签中添加按键绑定功能
-        case TAB_AIM:
-            ImGui::BeginChild("AIM", ImVec2(0, 0), true);
-            {
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "FOV设置");
-                ImGui::Checkbox("FOV", &zeroflick::aim::fov);
-                ImGui::SliderFloat("FOV大小", &zeroflick::aim::FOVSize, 0.01f, 100.00f, "%.2f");
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "选地设置");
-                ImGui::Checkbox("显示选敌", &zeroflick::aim::inspectEn);
-                ImGui::SliderFloat("选敌大小", &zeroflick::aim::inspectEnSize, 0.01f, 5.00f, "%.2f");
+		EndChild(); PopID();
 
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "自瞄设置");
-                ImGui::Checkbox("模拟自瞄", &zeroflick::aim::aimbot);
-                ImGui::SliderFloat("平滑系数", &zeroflick::aim::smoothFactorValue, 0.1f, 4.0f, "%.1f");
+		PopStyleVar(2);
 
-                // 新增：自瞄按键绑定
-                if (ImGui::Button(isBindingAimKey ? "按下按键..." : ("自瞄键: " + std::string(GetKeyName(zeroflick::aim::aimKey))).c_str())) {
-                    isBindingAimKey = true;
-                }
-                ImGui::SeparatorText("自动扳机");
-                // 新增：自动开火按键绑定
-                ImGui::Checkbox("自动扳机", &zeroflick::aim::autoaim);
-                if (ImGui::Button(isBindingTriggerKey ? "按下按键..." : ("自动开火键: " + std::string(GetKeyName(zeroflick::aim::triggerKey))).c_str())) {
-                    isBindingTriggerKey = true;
-                }
+	} ImGui::End();
 
-                // 新增：瞄准部位选择
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "瞄准部位");
-                ImGui::RadioButton("头部", &zeroflick::aim::aimPart, 0);
-                ImGui::SameLine();
-                ImGui::RadioButton("胸部", &zeroflick::aim::aimPart, 1);
-                ImGui::SameLine();
-                ImGui::RadioButton("腹部", &zeroflick::aim::aimPart, 2);
-
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "压枪设置");
-                ImGui::Checkbox("模拟压枪", &zeroflick::aim::autopunch);
-                ImGui::SliderFloat("Y压枪强度", &zeroflick::aim::autopunchsenx, 0.100f, 5.000f, "%.3f");
-                ImGui::SliderFloat("X压枪强度", &zeroflick::aim::autopunchseny, 0.100f, 5.000f, "%.3f");
-            }
-            ImGui::EndChild();
-            break;
-
-        case TAB_MISC:
-            ImGui::BeginChild("MOVEMENT", ImVec2(0, 0), true);
-            {
-                ImGui::Checkbox("BHop", &zeroflick::movement::bhop);
-            }
-            ImGui::EndChild();
-            break;
-
-        case TAB_SETTINGS:
-            ImGui::BeginChild("Settings", ImVec2(0, 0), true);
-            {
-                ShowFeedback();
-                ImGui::TextColored(ImVec4(0.26f, 0.59f, 0.98f, 1.0f), "配置管理");
-
-                // 刷新配置列表按钮
-                if (ImGui::Button("刷新配置列表", ImVec2(120, 30))) {
-                    RefreshConfigList();
-                    SetFeedback("刷新成功", ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
-                }
-
-                ImGui::SameLine();
-
-                // 保存当前配置按钮
-                if (ImGui::Button("保存当前配置", ImVec2(120, 30))) {
-                    if (selectedConfig >= 0 && selectedConfig < configList.size()) {
-                        SaveCurrentConfig(configList[selectedConfig]);
-                        SetFeedback(std::string("配置保存成功"), ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
-                    }
-                
-                }
-
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::Spacing();
-
-                // 配置列表
-                ImGui::Text("可用配置:");
-                if (ImGui::BeginListBox("##配置列表", ImVec2(-1, 150))) {
-                    for (int i = 0; i < configList.size(); i++) {
-                        const bool isSelected = (selectedConfig == i);
-                        if (ImGui::Selectable(configList[i].c_str(), isSelected)) {
-                            selectedConfig = i;
-                        }
-
-                        if (isSelected) {
-                            ImGui::SetItemDefaultFocus();
-                        }
-                    }
-                    ImGui::EndListBox();
-                }
-
-                // 加载选中的配置
-                if (selectedConfig >= 0 && selectedConfig < configList.size()) {
-                    if (ImGui::Button("加载选中配置", ImVec2(120, 30))) {
-                        LoadConfig(configList[selectedConfig]);
-                        SetFeedback(std::string("配置加载成功"), ImVec4(0.0f, 1.0f, 1.0f, 1.0f));
-                    }
-
-                    ImGui::SameLine();
-
-                    // 删除配置按钮
-                    if (ImGui::Button("删除配置", ImVec2(120, 30))) {
-                        std::string fileToDelete = configList[selectedConfig] + ".ini";
-                        if (fs::exists(fileToDelete)) {
-                            fs::remove(fileToDelete);
-                            RefreshConfigList();
-                            selectedConfig = -1;
-                            SetFeedback(std::string("删除成功"), ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
-                        }
-                        else {
-                            SetFeedback(std::string("删除失败: 文件不存在"), ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
-                        }
-                    }
-                }
-
-                ImGui::Spacing();
-                ImGui::Separator();
-                ImGui::Spacing();
-
-                // 新建配置
-                ImGui::Text("新建配置:");
-                ImGui::InputText("##新配置名称", newConfigName, IM_ARRAYSIZE(newConfigName));
-
-                if (ImGui::Button("创建新配置", ImVec2(120, 30)) && strlen(newConfigName) > 0) {
-                    std::string newConfig = newConfigName;
-                    if (!newConfig.empty()) {
-                        SaveCurrentConfig(newConfig);
-                        RefreshConfigList();
-                        newConfigName[0] = '\0'; // 清空输入框
-
-                        // 选中新创建的配置
-                        auto it = std::find(configList.begin(), configList.end(), newConfig);
-                        if (it != configList.end()) {
-                            selectedConfig = std::distance(configList.begin(), it);
-                        }
-                    }
-                }
-            }
-            ImGui::EndChild();
-            break;
-
-        }
-
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
-        ImGui::Columns(1); // 结束列布局
-    }
-    ImGui::End();
-
-    // 恢复样式
-    ImGui::PopStyleVar(2);
+	PopStyleVar();
 }

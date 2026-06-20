@@ -103,7 +103,7 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /Zc:char8_t- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -121,7 +121,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/utf-8 /Zc:char8_t- %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -166,7 +166,11 @@
     <ClInclude Include="cs2 dumper\worldrenderer_dll.hpp" />
     <ClInclude Include="feature\aimbot.h" />
     <ClInclude Include="feature\esp.h" />
+    <ClInclude Include="gui\bytes.hpp" />
+    <ClInclude Include="gui\color_t.hpp" />
     <ClInclude Include="gui\gui.h" />
+    <ClInclude Include="gui\hashes.hpp" />
+    <ClInclude Include="gui\neverlose_gui.hpp" />
     <ClInclude Include="imgui_d11\imconfig.h" />
     <ClInclude Include="imgui_d11\imgui.h" />
     <ClInclude Include="imgui_d11\imgui_impl_dx11.h" />

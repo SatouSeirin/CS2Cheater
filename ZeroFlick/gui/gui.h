@@ -1,76 +1,77 @@
 #pragma once
 #define WIN32_LEAN_AND_MEAN
+#define IMGUI_DEFINE_MATH_OPERATORS
 #include <Windows.h>
-#include <WinUser.h>
+#include <d3d11.h>
 #include "../imgui_d11/imgui.h"
+#include "../imgui_d11/imgui_internal.h"
+#include "neverlose_gui.hpp"
+#include "hashes.hpp"
 #include <string>
+#include <vector>
+
+// ═══════════════════════════════════════════════
+//  字体 (neverlose + 保留)
+// ═══════════════════════════════════════════════
+extern ImFont* g_NLMainFont;      // museo500, 14px
+extern ImFont* g_NLTitleFont;     // museo900, 28px
+extern ImFont* g_NLIconFont;      // font_awesome merged
+extern ImFont* LexendDecaFont;
+extern ImFont* InterMedium;
+
+// ═══════════════════════════════════════════════
+//  菜单状态
+// ═══════════════════════════════════════════════
+extern int g_menu_tab;
+
+// ═══════════════════════════════════════════════
+//  ZeroFlick 功能变量
+// ═══════════════════════════════════════════════
 namespace zeroflick {
 	namespace visuals {
-		inline bool box = false;
-		inline float BOXcol[4] = { 0.0f, 1.0f, 0.82f, 1.0f }; // 初始化默认值（RGBA）
-
-	    inline bool bone = false;
-		inline float Bonecol[4] = { 1.0f, 1.0f, 1.0f, 1.0f }; // 红色默认值
-
-        inline bool name = false;
-        inline float namecol[4] = { 1.0f, 1.0f, 1.0f, 1.0f }; // 红色默认值
-
-	    inline bool hp = false;
-		inline float HPcol[4] = { 0.0f, 1.0f, 0.0f, 1.0f }; // ??????????
-
-        inline bool weapon = false;
-        inline float weaponcol[4] = { 1.0f, 1.0f, 0.0f, 1.0f }; // 黄色
+		extern bool  box, bone, name, hp, weapon, snapline, distance;
+		extern bool  visible_only, team_check;
+		extern float BOXcol[4], Bonecol[4], namecol[4], HPcol[4];
+		extern float weaponcol[4], snaplinecol[4];
+		extern float maxDist;
 	}
-
-  namespace aim {
-       inline bool aimbot = true;
-       inline bool autoaim = false;
-       inline bool autopunch = false;
-        inline bool inspectEn = false;
-        inline bool fov = false;
-      inline float FOVSize = 100.0f;
-	  inline float autopunchsenx = 1.000f; // 自动打枪灵敏度系数
-	  inline float autopunchseny = 1.000f; // 自动打枪灵敏度系数
-      inline float smoothFactorValue = 4.0f;
-       inline float inspectEnSize = 10.0f;
-
-       inline int aimKey = VK_MENU; // 默认ALT键 (自瞄热键)
-       inline int triggerKey = VK_SHIFT; // 默认SHIFT键 (自动扳机热键)
-       inline int aimPart = 0; // 0=头部, 1=胸部, 2=腹部
-
-        inline bool aimHead = true;   // 默认瞄准头部
-       inline bool aimBody = false;  // 瞄准胸部
-       inline bool aimDick = false;  // 瞄准盆骨
-   }
-
+	namespace aim {
+		extern bool  aimbot, autoaim, autopunch, inspectEn, fov;
+		extern float FOVSize, autopunchsenx, autopunchseny;
+		extern float smoothFactorValue, inspectEnSize;
+		extern int   aimKey, triggerKey, aimPart;
+		extern bool  aimHead, aimBody, aimDick;
+	}
 	namespace movement {
-	inline bool bhop = false;
-    }
+		extern bool  bhop;
+	}
+	namespace misc {
+		extern bool  auto_strafe, no_flash;
+		extern float flash_alpha;
+	}
 }
 
-namespace gui {
-    void Initialize();  // 声明初始化函数
-}
-
-
-// 反馈结构体
-struct Feedback {
-    std::string message;
-    float timer = 0.0f;
-    ImVec4 color = ImVec4(0.26f, 0.59f, 0.98f, 1.0f);
-};
-
-extern Feedback g_feedback;  // 声明全局变量
-
+// ═══════════════════════════════════════════════
+//  初始化 & 渲染
+// ═══════════════════════════════════════════════
+void gui_Initialize();
 void draw_Menu();
 
-// 反馈系统
+// ═══════════════════════════════════════════════
+//  反馈系统
+// ═══════════════════════════════════════════════
+struct Feedback {
+	std::string message;
+	float timer = 0.0f;
+	ImVec4 color = ImVec4(0.26f, 0.59f, 0.98f, 1.0f);
+};
+extern Feedback g_feedback;
 void ShowFeedback();
-void SetFeedback(const std::string& message,
-    const ImVec4& color = ImVec4(0.26f, 0.59f, 0.98f, 1.0f),
-    float duration = 2.0f);// 声明时指定默认参数
-void ShowFeedback();
-// 配置管理
+void SetFeedback(const std::string& msg, const ImVec4& col = ImVec4(0.26f, 0.59f, 0.98f, 1.0f), float dur = 2.0f);
+
+// ═══════════════════════════════════════════════
+//  配置管理
+// ═══════════════════════════════════════════════
 void SaveCurrentConfig(const std::string& filename);
 void LoadConfig(const std::string& filename);
 void RefreshConfigList();
