@@ -1,0 +1,187 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>17.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{fe54b30e-f6e3-4a07-bf9b-d72ef7ca5f4d}</ProjectGuid>
+    <RootNamespace>ZeroFlick</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v143</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpp20</LanguageStandard>
+      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>.\minhook_debug_x64\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>d3d11.lib;dxgi.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="feature\aimbot.cpp" />
+    <ClCompile Include="feature\esp.cpp" />
+    <ClCompile Include="gui\gui.cpp" />
+    <ClCompile Include="imgui_d11\imgui.cpp" />
+    <ClCompile Include="imgui_d11\imgui_draw.cpp" />
+    <ClCompile Include="imgui_d11\imgui_impl_dx11.cpp" />
+    <ClCompile Include="imgui_d11\imgui_impl_win32.cpp" />
+    <ClCompile Include="imgui_d11\imgui_tables.cpp" />
+    <ClCompile Include="imgui_d11\imgui_widgets.cpp" />
+    <ClCompile Include="Main\DllMain.cpp" />
+    <ClCompile Include="utils\Vector.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="cs2 dumper\animationsystem_dll.hpp" />
+    <ClInclude Include="cs2 dumper\buttons.hpp" />
+    <ClInclude Include="cs2 dumper\client_dll.hpp" />
+    <ClInclude Include="cs2 dumper\engine2_dll.hpp" />
+    <ClInclude Include="cs2 dumper\host_dll.hpp" />
+    <ClInclude Include="cs2 dumper\interfaces.hpp" />
+    <ClInclude Include="cs2 dumper\materialsystem2_dll.hpp" />
+    <ClInclude Include="cs2 dumper\networksystem_dll.hpp" />
+    <ClInclude Include="cs2 dumper\offsets.hpp" />
+    <ClInclude Include="cs2 dumper\panorama_dll.hpp" />
+    <ClInclude Include="cs2 dumper\particles_dll.hpp" />
+    <ClInclude Include="cs2 dumper\pulse_system_dll.hpp" />
+    <ClInclude Include="cs2 dumper\rendersystemdx11_dll.hpp" />
+    <ClInclude Include="cs2 dumper\resourcesystem_dll.hpp" />
+    <ClInclude Include="cs2 dumper\scenesystem_dll.hpp" />
+    <ClInclude Include="cs2 dumper\schemasystem_dll.hpp" />
+    <ClInclude Include="cs2 dumper\server_dll.hpp" />
+    <ClInclude Include="cs2 dumper\soundsystem_dll.hpp" />
+    <ClInclude Include="cs2 dumper\vphysics2_dll.hpp" />
+    <ClInclude Include="cs2 dumper\worldrenderer_dll.hpp" />
+    <ClInclude Include="feature\aimbot.h" />
+    <ClInclude Include="feature\esp.h" />
+    <ClInclude Include="gui\gui.h" />
+    <ClInclude Include="imgui_d11\imconfig.h" />
+    <ClInclude Include="imgui_d11\imgui.h" />
+    <ClInclude Include="imgui_d11\imgui_impl_dx11.h" />
+    <ClInclude Include="imgui_d11\imgui_impl_win32.h" />
+    <ClInclude Include="imgui_d11\imgui_internal.h" />
+    <ClInclude Include="imgui_d11\imstb_rectpack.h" />
+    <ClInclude Include="imgui_d11\imstb_textedit.h" />
+    <ClInclude Include="imgui_d11\imstb_truetype.h" />
+    <ClInclude Include="minhook_debug_x64\include\MinHook.h" />
+    <ClInclude Include="utils\ColorH.h" />
+    <ClInclude Include="utils\CUserCMD.h" />
+    <ClInclude Include="utils\StringH.h" />
+    <ClInclude Include="utils\Vector.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="minhook_debug_x64\lib\minhook.x64d.lib" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>
