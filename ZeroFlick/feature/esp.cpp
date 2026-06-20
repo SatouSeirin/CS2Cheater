@@ -97,42 +97,21 @@ bool WorldToScreen(Vector3 pWorldPos, Vector3& pScreenPos, float* pMatrixPtr, co
 
 Vector3 BonePos(uintptr_t addr, int32_t index)
 {
-	if (!addr) return Vector3();
-
-	// CS2 骨骼获取路径:
-	// C_BaseEntity + m_pGameSceneNode (0x330) -> CGameSceneNode* (即 CSkeletonInstance*)
-	// CSkeletonInstance + 0x1F0 -> pBoneCache (Matrix2x4_t*)
-	// 每个骨骼矩阵是 32 字节 (4个Vector4D: [4x4]中的3行 + padding)
-	// 骨骼位置在矩阵的第4列: offset = index * 32 + 12 (第4个float)
-
-	uintptr_t pGameSceneNode = 0;
-	if (IsBadReadPtr(reinterpret_cast<void*>(addr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode), sizeof(uintptr_t)))
+	int32_t d = 32 * index;
+	uintptr_t address{};
+	address = *reinterpret_cast<uintptr_t*>(addr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode);
+	if (!address)
+	{
 		return Vector3();
+	}
 
-	pGameSceneNode = *reinterpret_cast<uintptr_t*>(addr + cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode);
-	if (!pGameSceneNode)
+	auto BoneArray = cs2_dumper::schemas::client_dll::CSkeletonInstance::m_modelState + 0x80;
+	address = *reinterpret_cast<uintptr_t*>(address + BoneArray);
+	if (!address)
+	{
 		return Vector3();
-
-	// pBoneCache 在 CSkeletonInstance 中的偏移 (asphyxia-cs2 验证: 0x1F0)
-	constexpr std::ptrdiff_t pBoneCache = 0x1F0;
-
-	uintptr_t boneMatrix = 0;
-	if (IsBadReadPtr(reinterpret_cast<void*>(pGameSceneNode + pBoneCache), sizeof(uintptr_t)))
-		return Vector3();
-
-	boneMatrix = *reinterpret_cast<uintptr_t*>(pGameSceneNode + pBoneCache);
-	if (!boneMatrix)
-		return Vector3();
-
-	// 每个骨骼矩阵是 Matrix2x4_t = 32 字节 (2行 x 4列 = 8个float)
-	// 骨骼位置在矩阵中的偏移取决于具体实现
-	// asphyxia-cs2 的 CBoneData: {Vector3 Location, float Scale, Quaternion Rotation} = 32字节
-	// 即 boneMatrix + index * 32 读取前12字节即可得到位置
-	uintptr_t boneAddr = boneMatrix + index * 32;
-	if (IsBadReadPtr(reinterpret_cast<void*>(boneAddr), sizeof(Vector3)))
-		return Vector3();
-
-	return *reinterpret_cast<Vector3*>(boneAddr);
+	}
+	return *reinterpret_cast<Vector3*>(address + d);
 }
 
 uintptr_t GetPlayerPawn(uintptr_t playerController, uintptr_t client) {
@@ -567,6 +546,51 @@ void draw_esp() {
 	// GetBaseEntity 已验证正确，继续执行完整 ESP
 	// (如果上面 return 了说明还没修好，不会执行到这里)
 	printf("[ZeroFlick DEBUG] ===== GetBaseEntity OK, running full ESP =====\n");
+
+	// ===== 骨骼调试: 测试骨骼读取 =====
+	static bool boneDebugOnce = false;
+	if (!boneDebugOnce) {
+		boneDebugOnce = true;
+		printf("[ZeroFlick DEBUG] ===== Bone Test on localPawn =====\n");
+
+		// 读取 pGameSceneNode
+		uintptr_t pGameSceneNode = 0;
+		if (!IsBadReadPtr(reinterpret_cast<void*>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode), sizeof(uintptr_t))) {
+			pGameSceneNode = *reinterpret_cast<uintptr_t*>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode);
+		}
+		printf("[ZeroFlick DEBUG] localPawn=0x%p, pGameSceneNode=0x%p (offset=0x%X)\n",
+			(void*)localPawn, (void*)pGameSceneNode,
+			cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode);
+
+		if (pGameSceneNode) {
+			// 读取 BoneArray (CSkeletonInstance::m_modelState + 0x80)
+			auto BoneArrayOffset = cs2_dumper::schemas::client_dll::CSkeletonInstance::m_modelState + 0x80;
+			uintptr_t boneArray = 0;
+			if (!IsBadReadPtr(reinterpret_cast<void*>(pGameSceneNode + BoneArrayOffset), sizeof(uintptr_t))) {
+				boneArray = *reinterpret_cast<uintptr_t*>(pGameSceneNode + BoneArrayOffset);
+			}
+			printf("[ZeroFlick DEBUG] BoneArray(m_modelState+0x80 = +0x%zX)=0x%p\n", BoneArrayOffset, (void*)boneArray);
+
+			if (boneArray) {
+				// 扫描骨骼 0~50，打印所有非零骨骼
+				printf("[ZeroFlick DEBUG] Scanning bones 0~50:\n");
+				int foundCount = 0;
+				for (int idx = 0; idx <= 50; idx++) {
+					Vector3 pos = BonePos(localPawn, idx);
+					if (pos.x != 0.0f || pos.y != 0.0f || pos.z != 0.0f) {
+						foundCount++;
+						printf("[ZeroFlick DEBUG]   Bone[%2d] = (%.2f, %.2f, %.2f)\n", idx, pos.x, pos.y, pos.z);
+					}
+				}
+				printf("[ZeroFlick DEBUG] Total valid bones: %d / 51\n", foundCount);
+			} else {
+				printf("[ZeroFlick DEBUG] FAIL: boneArray is NULL!\n");
+			}
+		} else {
+			printf("[ZeroFlick DEBUG] FAIL: pGameSceneNode is NULL!\n");
+		}
+	}
+	// ===== 骨骼调试结束 =====
 
 	// 1. 先寻找最佳目标（仅在FOV范围内）
 	uintptr_t bestTarget = FindBestTarget(localPawn, client, Matrix);

@@ -9,34 +9,34 @@ void draw_esp();
 namespace Bone_Base {
 
 	enum BoneIndex {
-		head = 6,           // Í·²¿
-		neck_0 = 5,         // ¾±²¿
-		spine_1 = 4,        // ¼¹×µ1
-		spine_2 = 2,        // ¼¹×µ2
-		pelvis = 0,         // ¹ÇÅè
-		arm_upper_L = 8,    // ×óÉÏ±Û
-		arm_lower_L = 9,    // ×óÇ°±Û
-		hand_L = 10,        // ×óÊÖ
-		arm_upper_R = 13,   // ÓÒÉÏ±Û
-		arm_lower_R = 14,   // ÓÒÇ°±Û
-		hand_R = 15,        // ÓÒÊÖ
-		leg_upper_L = 22,   // ×ó´óÍÈ
-		leg_lower_L = 23,   // ×óĞ¡ÍÈ
-		ankle_L = 24,       // ×ó½Åõ×
-		leg_upper_R = 25,   // ÓÒ´óÍÈ
-		leg_lower_R = 26,   // ÓÒĞ¡ÍÈ
-		ankle_R = 27,       // ÓÒ½Åõ×
+		head = 7,           // å¤´éƒ¨
+		neck_0 = 6,         // é¢ˆéƒ¨
+		spine_1 = 5,        // è„ŠæŸ±1
+		spine_2 = 3,        // è„ŠæŸ±2
+		pelvis = 2,         // éª¨ç›†ï¼ˆæˆ–è‡€éƒ¨ï¼‰
+		arm_upper_L = 9,    // å·¦ä¸Šè‡‚
+		arm_lower_L = 10,    // å·¦å‰è‡‚
+		hand_L = 11,        // å·¦æ‰‹
+		arm_upper_R = 13,   // å³ä¸Šè‡‚
+		arm_lower_R = 14,   // å³å‰è‡‚
+		hand_R = 15,        // å³æ‰‹
+		leg_upper_L = 17,   // å·¦å¤§è…¿
+		leg_lower_L = 18,   // å·¦å°è…¿
+		ankle_L = 19,       // å·¦è„šè¸
+		leg_upper_R = 20,   // å³å¤§è…¿
+		leg_lower_R = 21,   // å³å°è…¿
+		ankle_R = 22,       // å³è„šè¸
 	};
 
 
 }
 
 
-//È¡¹Ç÷À×ø±ê
+//È¡ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 Vector3 BonePos(uintptr_t addr, int32_t index);
-//È«Éí¹Ç÷À»æÖÆ
+//È«ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void Bone_Start(uintptr_t pawn, ImColor BoneColor, float* Matrix);
-//¹Ç÷À»æ»­ÁĞ±íµÄÁ¬Ïß
+//ï¿½ï¿½ï¿½ï¿½ï¿½æ»­ï¿½Ğ±ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 void DrawLine(std::vector<Vector3> list, ImColor Color, float* Matrix);
 
 inline std::vector<Vector3>BoneDrawList{};
