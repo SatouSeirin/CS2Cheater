@@ -15,141 +15,108 @@
 #include <unordered_map>
 
 
-uintptr_t GetBaseEntity(int index, uintptr_t client) {
-	if (!client) return 0;
+// ===== 实体列表布局自动发现 =====
+struct EntityListConfig {
+	uint32_t chunkArrayOffset = 0x10;   // chunk指针数组相对entSystem的偏移
+	uint32_t entitySlotSize   = 0x70;   // 每个实体的槽位大小
+	bool     discovered        = false;
+};
+EntityListConfig g_EntConfig;
 
-	// CS2 实体列表 (chunk 结构):
-	// dwEntityList -> CGameEntitySystem*
-	// CGameEntitySystem+0x10 -> chunk指针数组 (每个含标志位0x8)
-	// chunk = *(entSystem+0x10 + chunkIdx*8) & ~0x7
-	// 实体 = chunk[chunkIndex]  (每个chunk含512个实体)
-	// 实体大小 = chunk内部间距 (动态探测)
+void DiscoverEntityLayout(uintptr_t client) {
+	if (g_EntConfig.discovered) return;
 
 	auto entSystem = *reinterpret_cast<std::uintptr_t*>(client + cs2_dumper::offsets::client_dll::dwEntityList);
+	if (!entSystem) return;
 
-	// 缓存: chunk基址数组, 实体大小, 每chunk实体数
-	static uintptr_t s_chunkPtrs[64] = {};
-	static int s_entitySize = 0;
-	static int s_entitiesPerChunk = 512;
-	static int s_scanDone = 0;
+	// 获取已知参考: localPawn 的地址和索引
+	auto localPawn = *reinterpret_cast<uintptr_t*>(client + cs2_dumper::offsets::client_dll::dwLocalPlayerPawn);
+	if (!localPawn) return;
 
-	if (!s_scanDone) {
-		printf("[ZeroFlick] dwEntityList=0x%zX, entSystem=0x%p\n",
-			cs2_dumper::offsets::client_dll::dwEntityList, (void*)entSystem);
+	auto localCtrl = *reinterpret_cast<uintptr_t*>(client + cs2_dumper::offsets::client_dll::dwLocalPlayerController);
+	if (!localCtrl) return;
 
-		if (entSystem == 0 || entSystem < 0x10000) {
-			s_scanDone = -1;
-			return 0;
-		}
+	auto hPawn = *reinterpret_cast<uint32_t*>(localCtrl +
+		cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
+	if (hPawn == 0xFFFFFFFF) return;
 
-		// dump entSystem 前 0x80 字节
-		printf("[ZeroFlick] entSystem dump (first 0x80 bytes):\n");
-		__try {
-			for (ptrdiff_t off = 0; off < 0x80; off += 8) {
-				uintptr_t val = *reinterpret_cast<uintptr_t*>(entSystem + off);
-				printf("[ZeroFlick]   +0x%02zX = 0x%016llX\n", off, (unsigned long long)val);
-			}
-		} __except (EXCEPTION_EXECUTE_HANDLER) {}
+	int knownIndex  = hPawn & 0x7FFF;
+	int knownChunk  = knownIndex >> 9;
+	int knownSlot   = knownIndex & 0x1FF;
 
-		// 尝试多种实体大小: 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0
-		int candidateSizes[] = { 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0 };
-		ptrdiff_t chunkListOffsets[] = { 0x10, 0x18 };
+	printf("[EntityLayout] Scanning: localPawn=0x%p index=%d chunk=%d slot=%d\n",
+		(void*)localPawn, knownIndex, knownChunk, knownSlot);
 
-		bool found = false;
-		for (auto chunkListOff : chunkListOffsets) {
-			for (auto entSize : candidateSizes) {
-				__try {
-					// 读取 chunk 指针数组
-					int validChunks = 0;
-					for (int ci = 0; ci < 64; ci++) {
-						uintptr_t chunkPtr = *reinterpret_cast<uintptr_t*>(entSystem + chunkListOff + ci * 8);
-						chunkPtr &= ~0x7ULL;
-						if (!chunkPtr || chunkPtr < 0x10000) break;
-						// 验证 chunk 可读
-						volatile uintptr_t check = *reinterpret_cast<uintptr_t*>(chunkPtr);
-						if (check < 0x10000) break;
-						s_chunkPtrs[ci] = chunkPtr;
-						validChunks++;
-					}
+	// 候选槽位大小
+	const uint32_t slotSizes[] = { 0x70, 0x68, 0x78, 0x60, 0x80, 0x88, 0x90 };
 
-					if (validChunks < 2) continue;
+	// 扫描 entSystem, 找哪个指针能指向 localPawn 所在 chunk
+	// 扫描范围: entSystem + 0x00 ~ entSystem + 0x200, 步长 8 字节
+	for (int off = 0x00; off <= 0x200; off += 8) {
+		if (IsBadReadPtr(reinterpret_cast<void*>(entSystem + off), 8))
+			continue;
+		uintptr_t candidatePtr = *reinterpret_cast<uintptr_t*>(entSystem + off);
+		if (!candidatePtr || candidatePtr < 0x10000ULL)
+			continue;
 
-					// 验证: 用 entSize 读取 chunk 内的实体
-					int entitiesPerChunk = 512;
-					int totalValid = 0;
-					for (int ci = 0; ci < validChunks && ci < 4; ci++) {
-						for (int ei = 0; ei < entitiesPerChunk; ei++) {
-							uintptr_t ent = *reinterpret_cast<uintptr_t*>(s_chunkPtrs[ci] + ei * entSize);
-							if (ent && ent > 0x10000) {
-								volatile uintptr_t v = *reinterpret_cast<uintptr_t*>(ent);
-								if (v > 0x10000) totalValid++;
-							}
-						}
-					}
+		for (auto slotSz : slotSizes) {
+			for (int maskMode = 0; maskMode < 2; maskMode++) {
+				uintptr_t testChunk = candidatePtr;
+				if (maskMode == 1)
+					testChunk &= ~0x7ULL;
 
-					if (totalValid >= 10) {
-						s_entitySize = entSize;
-						s_entitiesPerChunk = entitiesPerChunk;
-						s_scanDone = 1;
-						found = true;
-						printf("[ZeroFlick] Chunk mode: entSize=0x%X, chunks=%d, chunkListAt+0x%zX, totalValid=%d\n",
-							entSize, validChunks, chunkListOff, totalValid);
-						goto scan_end;
-					}
-				} __except (EXCEPTION_EXECUTE_HANDLER) {}
-			}
-		}
+				uintptr_t testAddr = testChunk + static_cast<uintptr_t>(knownSlot) * slotSz;
+				if (IsBadReadPtr(reinterpret_cast<void*>(testAddr), 8))
+					continue;
 
-		// 如果 chunk 模式失败，尝试扁平数组模式
-		{
-			ptrdiff_t flatOffsets[] = { 0x10, 0x18, 0x08, 0x20, 0x28, 0x30 };
-			for (auto off : flatOffsets) {
-				for (auto entSize : candidateSizes) {
-					__try {
-						uintptr_t base = *reinterpret_cast<uintptr_t*>(entSystem + off);
-						base &= ~0x7ULL;
-						if (!base || base < 0x10000) continue;
-						int validCount = 0;
-						int testIndices[] = { 1, 10, 100, 256, 512, 800 };
-						for (int ti = 0; ti < 6; ti++) {
-							uintptr_t ent = *reinterpret_cast<uintptr_t*>(base + testIndices[ti] * entSize);
-							if (ent && ent > 0x10000) {
-								volatile uintptr_t ck = *reinterpret_cast<uintptr_t*>(ent);
-								if (ck > 0x10000) validCount++;
-							}
-						}
-						if (validCount >= 3) {
-							s_entitySize = entSize;
-							s_entitiesPerChunk = 0; // 0 表示扁平数组模式
-							s_chunkPtrs[0] = base;
-							s_scanDone = 2; // 2 = 扁平数组
-							found = true;
-							printf("[ZeroFlick] Flat array mode: entSize=0x%X, base at+0x%zX, valid=%d\n",
-								entSize, off, validCount);
-							goto scan_end;
-						}
-					} __except (EXCEPTION_EXECUTE_HANDLER) {}
+				if (*reinterpret_cast<uintptr_t*>(testAddr) == localPawn) {
+					// 找到了! 反推 chunkArrayOffset
+					g_EntConfig.chunkArrayOffset = static_cast<uint32_t>(off - 8ULL * knownChunk);
+					g_EntConfig.entitySlotSize   = slotSz;
+					g_EntConfig.discovered       = true;
+
+					printf("[EntityLayout] FOUND! chunkArrayOffset=0x%X slotSize=0x%X mask=%s (entSystem+0x%X -> chunk%d base)\n",
+						g_EntConfig.chunkArrayOffset, g_EntConfig.entitySlotSize,
+						maskMode ? "ON" : "OFF", off, knownChunk);
+					return;
 				}
 			}
 		}
-
-		s_scanDone = -1;
-		printf("[ZeroFlick] FAIL: no entity layout found!\n");
-	}
-scan_end:
-
-	if (s_scanDone <= 0) return 0;
-
-	// chunk 模式: index -> chunkIndex + entityIndex
-	if (s_scanDone == 1) {
-		int chunkIdx = index / s_entitiesPerChunk;
-		int entIdx = index % s_entitiesPerChunk;
-		if (chunkIdx >= 64 || !s_chunkPtrs[chunkIdx]) return 0;
-		return *reinterpret_cast<uintptr_t*>(s_chunkPtrs[chunkIdx] + entIdx * s_entitySize);
 	}
 
-	// 扁平数组模式
-	return *reinterpret_cast<uintptr_t*>(s_chunkPtrs[0] + index * s_entitySize);
+	// 回退到硬编码默认值
+	printf("[EntityLayout] Auto-discovery failed, using defaults (offset=0x10, slotSize=0x70)\n");
+	g_EntConfig.discovered = true;
+}
+// ===== 实体列表布局自动发现结束 =====
+
+uintptr_t GetBaseEntity(int index, uintptr_t client) {
+	if (!client) return 0;
+
+	// 首次调用时自动发现布局
+	if (!g_EntConfig.discovered)
+		DiscoverEntityLayout(client);
+
+	auto entSystem = *reinterpret_cast<std::uintptr_t*>(client + cs2_dumper::offsets::client_dll::dwEntityList);
+	if (entSystem == 0 || IsBadReadPtr(reinterpret_cast<void*>(entSystem), sizeof(uintptr_t)))
+		return 0;
+
+	int chunk = index >> 9;
+	int slot  = index & 0x1FF;
+
+	uintptr_t chunkPtrAddr = entSystem + 8ULL * chunk + g_EntConfig.chunkArrayOffset;
+	if (IsBadReadPtr(reinterpret_cast<void*>(chunkPtrAddr), sizeof(uintptr_t)))
+		return 0;
+
+	uintptr_t chunkBase = *reinterpret_cast<uintptr_t*>(chunkPtrAddr);
+	if (chunk == 0) chunkBase &= ~0x7ULL;
+	if (!chunkBase) return 0;
+
+	uintptr_t entityAddr = chunkBase + static_cast<uintptr_t>(slot) * g_EntConfig.entitySlotSize;
+	if (IsBadReadPtr(reinterpret_cast<void*>(entityAddr), sizeof(uintptr_t)))
+		return 0;
+
+	return *reinterpret_cast<uintptr_t*>(entityAddr);
 }
 
 uintptr_t GetBaseEntityFromHandle(uint32_t uHandle, uintptr_t client) {
@@ -586,114 +553,20 @@ static const std::unordered_map<std::string, std::string> WEAPON_NAME_MAP = {
 
 
 
-// 最简调试: 每个 early return 前打印失败原因
-// 设为 false 让每次调用都打印 (用于调试)
-static bool debugOnce = false;
-
 void draw_esp() {
-	printf("[ZeroFlick DEBUG] ===== draw_esp() called =====\n");
-
 	const auto client = reinterpret_cast<uintptr_t>(GetModuleHandle(L"client.dll"));
-	if (!client) {
-		printf("[ZeroFlick DEBUG] FAIL: client.dll not found!\n");
-		return;
-	}
-	printf("[ZeroFlick DEBUG] client.dll: 0x%p\n", (void*)client);
+	if (!client) return;
 
 	auto local_ctrl = *reinterpret_cast<uintptr_t*>(client + cs2_dumper::offsets::client_dll::dwLocalPlayerController);
-	if (!local_ctrl) {
-		printf("[ZeroFlick DEBUG] FAIL: local_ctrl is NULL (offset dwLocalPlayerController = 0x%X)\n",
-			cs2_dumper::offsets::client_dll::dwLocalPlayerController);
-		return;
-	}
-	printf("[ZeroFlick DEBUG] local_ctrl: 0x%p\n", (void*)local_ctrl);
+	if (!local_ctrl) return;
 
 	auto localPawn = GetLocalPlayerPawn(client);
-	if (!localPawn) {
-		printf("[ZeroFlick DEBUG] FAIL: localPawn is NULL! (m_hPlayerPawn offset = 0x%X)\n",
-			cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
-		return;
-	}
-	printf("[ZeroFlick DEBUG] localPawn: 0x%p\n", (void*)localPawn);
+	if (!localPawn) return;
 
 	auto localteam = *reinterpret_cast<uint8_t*>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_iTeamNum);
-	printf("[ZeroFlick DEBUG] localteam: %d\n", localteam);
 
-	// dwViewMatrix 直接指向 float[16] 视图矩阵，不需要二次解引用
 	auto Matrix = reinterpret_cast<float*>(client + cs2_dumper::offsets::client_dll::dwViewMatrix);
-	if (!Matrix || IsBadReadPtr(Matrix, 16 * sizeof(float))) {
-		printf("[ZeroFlick DEBUG] FAIL: Matrix invalid at 0x%p!\n", (void*)Matrix);
-		return;
-	}
-	printf("[ZeroFlick DEBUG] ViewMatrix: 0x%p, [0]=%.4f [1]=%.4f [2]=%.4f [3]=%.4f\n",
-		(void*)Matrix, Matrix[0], Matrix[1], Matrix[2], Matrix[3]);
-
-	// 验证 GetBaseEntity 修复
-	{
-		uint32_t localHpawn = *reinterpret_cast<uint32_t*>(local_ctrl + cs2_dumper::schemas::client_dll::CCSPlayerController::m_hPlayerPawn);
-		int localIndex = localHpawn & 0x7FFF;
-		printf("[ZeroFlick DEBUG] local m_hPlayerPawn=0x%X, index=%d, localPawn=0x%p\n",
-			localHpawn, localIndex, (void*)localPawn);
-
-		uintptr_t testResult = GetBaseEntity(localIndex, client);
-		printf("[ZeroFlick DEBUG] GetBaseEntity(%d) = 0x%p, match=%s\n",
-			localIndex, (void*)testResult,
-			(testResult == localPawn) ? "YES!!" : "NO");
-
-		if (testResult != localPawn) {
-			printf("[ZeroFlick DEBUG] ===== GetBaseEntity still broken, stopping =====\n");
-			return;
-		}
-	}
-
-	// GetBaseEntity 已验证正确，继续执行完整 ESP
-	// (如果上面 return 了说明还没修好，不会执行到这里)
-	printf("[ZeroFlick DEBUG] ===== GetBaseEntity OK, running full ESP =====\n");
-
-	// ===== 骨骼调试: 测试骨骼读取 =====
-	static bool boneDebugOnce = false;
-	if (!boneDebugOnce) {
-		boneDebugOnce = true;
-		printf("[ZeroFlick DEBUG] ===== Bone Test on localPawn =====\n");
-
-		// 读取 pGameSceneNode
-		uintptr_t pGameSceneNode = 0;
-		if (!IsBadReadPtr(reinterpret_cast<void*>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode), sizeof(uintptr_t))) {
-			pGameSceneNode = *reinterpret_cast<uintptr_t*>(localPawn + cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode);
-		}
-		printf("[ZeroFlick DEBUG] localPawn=0x%p, pGameSceneNode=0x%p (offset=0x%X)\n",
-			(void*)localPawn, (void*)pGameSceneNode,
-			cs2_dumper::schemas::client_dll::C_BaseEntity::m_pGameSceneNode);
-
-		if (pGameSceneNode) {
-			// 读取 BoneArray (CSkeletonInstance::m_modelState + 0x80)
-			auto BoneArrayOffset = cs2_dumper::schemas::client_dll::CSkeletonInstance::m_modelState + 0x80;
-			uintptr_t boneArray = 0;
-			if (!IsBadReadPtr(reinterpret_cast<void*>(pGameSceneNode + BoneArrayOffset), sizeof(uintptr_t))) {
-				boneArray = *reinterpret_cast<uintptr_t*>(pGameSceneNode + BoneArrayOffset);
-			}
-			printf("[ZeroFlick DEBUG] BoneArray(m_modelState+0x80 = +0x%zX)=0x%p\n", BoneArrayOffset, (void*)boneArray);
-
-			if (boneArray) {
-				// 扫描骨骼 0~50，打印所有非零骨骼
-				printf("[ZeroFlick DEBUG] Scanning bones 0~50:\n");
-				int foundCount = 0;
-				for (int idx = 0; idx <= 50; idx++) {
-					Vector3 pos = BonePos(localPawn, idx);
-					if (pos.x != 0.0f || pos.y != 0.0f || pos.z != 0.0f) {
-						foundCount++;
-						printf("[ZeroFlick DEBUG]   Bone[%2d] = (%.2f, %.2f, %.2f)\n", idx, pos.x, pos.y, pos.z);
-					}
-				}
-				printf("[ZeroFlick DEBUG] Total valid bones: %d / 51\n", foundCount);
-			} else {
-				printf("[ZeroFlick DEBUG] FAIL: boneArray is NULL!\n");
-			}
-		} else {
-			printf("[ZeroFlick DEBUG] FAIL: pGameSceneNode is NULL!\n");
-		}
-	}
-	// ===== 骨骼调试结束 =====
+	if (!Matrix || IsBadReadPtr(Matrix, 16 * sizeof(float))) return;
 
 	// 1. 先寻找最佳目标（仅在FOV范围内）
 	uintptr_t bestTarget = FindBestTarget(localPawn, client, Matrix);

@@ -179,14 +179,30 @@ DWORD create(void*) {
 	freopen_s(&file, "CONOUT$", "w", stdout);
 	printf("[ZeroFlick] DLL injected, initializing...\n");
 
-	// 创建临时D3D11设备来获取Present函数地址（不释放，保持Hook有效）
+	// 创建专用的隐藏窗口用于临时 D3D11 设备
+	WNDCLASSEX wc = {};
+	wc.cbSize = sizeof(WNDCLASSEX);
+	wc.lpfnWndProc = DefWindowProc;
+	wc.lpszClassName = L"ZeroFlick_TempWindow";
+	wc.style = CS_HREDRAW | CS_VREDRAW;
+	RegisterClassEx(&wc);
+
+	HWND hTempWnd = CreateWindowEx(0, L"ZeroFlick_TempWindow", L"",
+		WS_OVERLAPPEDWINDOW, 0, 0, 100, 100,
+		nullptr, nullptr, GetModuleHandle(nullptr), nullptr);
+
+	if (!hTempWnd) {
+		// 极简回退：用桌面窗口
+		hTempWnd = GetDesktopWindow();
+	}
+
 	const unsigned level_count = 2;
 	D3D_FEATURE_LEVEL levels[level_count] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
 	DXGI_SWAP_CHAIN_DESC sd{};
 	sd.BufferCount = 1;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-	sd.OutputWindow = GetForegroundWindow();
+	sd.OutputWindow = hTempWnd;
 	sd.SampleDesc.Count = 1;
 	sd.Windowed = true;
 	sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
@@ -194,19 +210,31 @@ DWORD create(void*) {
 	ID3D11Device* tmpDevice = nullptr;
 	IDXGISwapChain* tmpSwapChain = nullptr;
 
-	auto hr = D3D11CreateDeviceAndSwapChain(
-		nullptr,
-		D3D_DRIVER_TYPE_HARDWARE,
-		nullptr,
-		0,
-		levels,
-		level_count,
-		D3D11_SDK_VERSION,
-		&sd,
-		&tmpSwapChain,
-		&tmpDevice,
-		nullptr,
-		nullptr);
+	D3D_DRIVER_TYPE driverTypes[] = { D3D_DRIVER_TYPE_HARDWARE, D3D_DRIVER_TYPE_WARP };
+	HRESULT hr = E_FAIL;
+
+	for (auto dt : driverTypes) {
+		hr = D3D11CreateDeviceAndSwapChain(
+			nullptr, dt, nullptr, 0,
+			levels, level_count, D3D11_SDK_VERSION,
+			&sd, &tmpSwapChain, &tmpDevice, nullptr, nullptr);
+		if (SUCCEEDED(hr) && tmpSwapChain) {
+			printf("[ZeroFlick] D3D11 device created (driver=%d, hr=0x%X)\n", dt, (unsigned)hr);
+			break;
+		}
+		printf("[ZeroFlick] D3D11 driver %d failed: hr=0x%X\n", dt, (unsigned)hr);
+		if (tmpDevice) { tmpDevice->Release(); tmpDevice = nullptr; }
+		if (tmpSwapChain) { tmpSwapChain->Release(); tmpSwapChain = nullptr; }
+	}
+
+	// 清理临时窗口
+	if (hTempWnd && hTempWnd != GetDesktopWindow()) {
+		DestroyWindow(hTempWnd);
+	}
+	UnregisterClass(L"ZeroFlick_TempWindow", GetModuleHandle(nullptr));
+
+	// 初始化 MinHook（在所有 hook 之前统一调用一次）
+	MH_Initialize();
 
 	if (tmpSwapChain) {
 		// 从虚函数表获取Present函数地址
@@ -216,7 +244,6 @@ DWORD create(void*) {
 
 		printf("[ZeroFlick] Present address: 0x%p\n", present);
 
-		MH_Initialize();
 		MH_STATUS status = MH_CreateHook(present, my_present, &origin_present);
 		if (status == MH_OK) {
 			MH_EnableHook(present);
@@ -326,7 +353,9 @@ DWORD create(void*) {
 	}
 
 	if (pfnCreateMove) {
+		printf("[ZeroFlick] CreateMove target: 0x%p, within client.dll\n", (void*)pfnCreateMove);
 		MH_STATUS status = MH_CreateHook(reinterpret_cast<void*>(pfnCreateMove), hkCreateMove, reinterpret_cast<void**>(&fnOriginalCreateMove));
+		printf("[ZeroFlick] MH_CreateHook returned: %d (OK=0, ALREADY_INIT=1, ALREADY_CREATED=2, NOT_INIT=3, NOT_CREATED=4, ENABLED=5, DISABLED=6)\n", status);
 		if (status == MH_OK) {
 			MH_EnableHook(reinterpret_cast<void*>(pfnCreateMove));
 			printf("[ZeroFlick] CreateMove hook installed successfully\n");

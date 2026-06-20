@@ -26,7 +26,6 @@ namespace Bone_Base {
 		leg_upper_R = 20,   // 右大腿
 		leg_lower_R = 21,   // 右小腿
 		ankle_R = 22,       // 右脚踝
-		eye_foward = 24,    // 看的地方
 	};
 
 
