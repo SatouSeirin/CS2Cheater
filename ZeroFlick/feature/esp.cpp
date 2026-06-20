@@ -18,35 +18,138 @@
 uintptr_t GetBaseEntity(int index, uintptr_t client) {
 	if (!client) return 0;
 
-	// CS2 实体列表结构 (从内存dump验证):
-	// entSystem = *dwEntityList  (CGameEntitySystem*)
-	// entSystem+0x10 -> 实体数组基址 (低位可能有标志位, 需要 & ~0x7)
-	// 每个实体槽位 0x70 (112 字节)
-	// 实体指针 = *(entSystem+0x10 & ~0x7 + index * 0x70)
+	// CS2 实体列表 (chunk 结构):
+	// dwEntityList -> CGameEntitySystem*
+	// CGameEntitySystem+0x10 -> chunk指针数组 (每个含标志位0x8)
+	// chunk = *(entSystem+0x10 + chunkIdx*8) & ~0x7
+	// 实体 = chunk[chunkIndex]  (每个chunk含512个实体)
+	// 实体大小 = chunk内部间距 (动态探测)
 
 	auto entSystem = *reinterpret_cast<std::uintptr_t*>(client + cs2_dumper::offsets::client_dll::dwEntityList);
-	if (entSystem == 0) return 0;
-	if (IsBadReadPtr(reinterpret_cast<void*>(entSystem), sizeof(uintptr_t)))
-		return 0;
 
-	// 从 entSystem+0x10 读取实体数组基址, 清除低3位标志
-	uintptr_t entityArrayBase = 0;
-	if (IsBadReadPtr(reinterpret_cast<void*>(entSystem + 0x10), sizeof(uintptr_t)))
-		return 0;
+	// 缓存: chunk基址数组, 实体大小, 每chunk实体数
+	static uintptr_t s_chunkPtrs[64] = {};
+	static int s_entitySize = 0;
+	static int s_entitiesPerChunk = 512;
+	static int s_scanDone = 0;
 
-	entityArrayBase = *reinterpret_cast<uintptr_t*>(entSystem + 0x10);
-	entityArrayBase &= ~0x7ULL; // 清除可能的标志位
+	if (!s_scanDone) {
+		printf("[ZeroFlick] dwEntityList=0x%zX, entSystem=0x%p\n",
+			cs2_dumper::offsets::client_dll::dwEntityList, (void*)entSystem);
 
-	if (!entityArrayBase)
-		return 0;
+		if (entSystem == 0 || entSystem < 0x10000) {
+			s_scanDone = -1;
+			return 0;
+		}
 
-	const int ENTITY_SIZE = 0x70; // 每个实体槽位 112 字节
+		// dump entSystem 前 0x80 字节
+		printf("[ZeroFlick] entSystem dump (first 0x80 bytes):\n");
+		__try {
+			for (ptrdiff_t off = 0; off < 0x80; off += 8) {
+				uintptr_t val = *reinterpret_cast<uintptr_t*>(entSystem + off);
+				printf("[ZeroFlick]   +0x%02zX = 0x%016llX\n", off, (unsigned long long)val);
+			}
+		} __except (EXCEPTION_EXECUTE_HANDLER) {}
 
-	uintptr_t entityAddr = entityArrayBase + index * ENTITY_SIZE;
-	if (IsBadReadPtr(reinterpret_cast<void*>(entityAddr), sizeof(uintptr_t)))
-		return 0;
+		// 尝试多种实体大小: 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0
+		int candidateSizes[] = { 0x70, 0x78, 0x80, 0x88, 0x90, 0x98, 0xA0 };
+		ptrdiff_t chunkListOffsets[] = { 0x10, 0x18 };
 
-	return *reinterpret_cast<uintptr_t*>(entityAddr);
+		bool found = false;
+		for (auto chunkListOff : chunkListOffsets) {
+			for (auto entSize : candidateSizes) {
+				__try {
+					// 读取 chunk 指针数组
+					int validChunks = 0;
+					for (int ci = 0; ci < 64; ci++) {
+						uintptr_t chunkPtr = *reinterpret_cast<uintptr_t*>(entSystem + chunkListOff + ci * 8);
+						chunkPtr &= ~0x7ULL;
+						if (!chunkPtr || chunkPtr < 0x10000) break;
+						// 验证 chunk 可读
+						volatile uintptr_t check = *reinterpret_cast<uintptr_t*>(chunkPtr);
+						if (check < 0x10000) break;
+						s_chunkPtrs[ci] = chunkPtr;
+						validChunks++;
+					}
+
+					if (validChunks < 2) continue;
+
+					// 验证: 用 entSize 读取 chunk 内的实体
+					int entitiesPerChunk = 512;
+					int totalValid = 0;
+					for (int ci = 0; ci < validChunks && ci < 4; ci++) {
+						for (int ei = 0; ei < entitiesPerChunk; ei++) {
+							uintptr_t ent = *reinterpret_cast<uintptr_t*>(s_chunkPtrs[ci] + ei * entSize);
+							if (ent && ent > 0x10000) {
+								volatile uintptr_t v = *reinterpret_cast<uintptr_t*>(ent);
+								if (v > 0x10000) totalValid++;
+							}
+						}
+					}
+
+					if (totalValid >= 10) {
+						s_entitySize = entSize;
+						s_entitiesPerChunk = entitiesPerChunk;
+						s_scanDone = 1;
+						found = true;
+						printf("[ZeroFlick] Chunk mode: entSize=0x%X, chunks=%d, chunkListAt+0x%zX, totalValid=%d\n",
+							entSize, validChunks, chunkListOff, totalValid);
+						goto scan_end;
+					}
+				} __except (EXCEPTION_EXECUTE_HANDLER) {}
+			}
+		}
+
+		// 如果 chunk 模式失败，尝试扁平数组模式
+		{
+			ptrdiff_t flatOffsets[] = { 0x10, 0x18, 0x08, 0x20, 0x28, 0x30 };
+			for (auto off : flatOffsets) {
+				for (auto entSize : candidateSizes) {
+					__try {
+						uintptr_t base = *reinterpret_cast<uintptr_t*>(entSystem + off);
+						base &= ~0x7ULL;
+						if (!base || base < 0x10000) continue;
+						int validCount = 0;
+						int testIndices[] = { 1, 10, 100, 256, 512, 800 };
+						for (int ti = 0; ti < 6; ti++) {
+							uintptr_t ent = *reinterpret_cast<uintptr_t*>(base + testIndices[ti] * entSize);
+							if (ent && ent > 0x10000) {
+								volatile uintptr_t ck = *reinterpret_cast<uintptr_t*>(ent);
+								if (ck > 0x10000) validCount++;
+							}
+						}
+						if (validCount >= 3) {
+							s_entitySize = entSize;
+							s_entitiesPerChunk = 0; // 0 表示扁平数组模式
+							s_chunkPtrs[0] = base;
+							s_scanDone = 2; // 2 = 扁平数组
+							found = true;
+							printf("[ZeroFlick] Flat array mode: entSize=0x%X, base at+0x%zX, valid=%d\n",
+								entSize, off, validCount);
+							goto scan_end;
+						}
+					} __except (EXCEPTION_EXECUTE_HANDLER) {}
+				}
+			}
+		}
+
+		s_scanDone = -1;
+		printf("[ZeroFlick] FAIL: no entity layout found!\n");
+	}
+scan_end:
+
+	if (s_scanDone <= 0) return 0;
+
+	// chunk 模式: index -> chunkIndex + entityIndex
+	if (s_scanDone == 1) {
+		int chunkIdx = index / s_entitiesPerChunk;
+		int entIdx = index % s_entitiesPerChunk;
+		if (chunkIdx >= 64 || !s_chunkPtrs[chunkIdx]) return 0;
+		return *reinterpret_cast<uintptr_t*>(s_chunkPtrs[chunkIdx] + entIdx * s_entitySize);
+	}
+
+	// 扁平数组模式
+	return *reinterpret_cast<uintptr_t*>(s_chunkPtrs[0] + index * s_entitySize);
 }
 
 uintptr_t GetBaseEntityFromHandle(uint32_t uHandle, uintptr_t client) {
